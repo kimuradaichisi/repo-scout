@@ -1,0 +1,20 @@
+goal: ExecuteContract 変更の影響範囲を調査する
+
+queries:
+  - id: Q1
+    tool: rg
+    pattern: ExecuteContract
+    paths:
+      - tools
+      - tests
+
+  - id: Q2
+    tool: read
+    file: tools/dev_agent/application/execute_contract.py
+    start_line: 1
+    end_line: 220
+
+  - id: Q3
+    instruction: >
+      ExecuteContract を利用するテストを調査し、
+      ファイル名・行番号・該当行だけ返せ。
