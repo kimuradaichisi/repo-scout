@@ -14,14 +14,21 @@ No synthesis stage. This does not re-run A/B1/B2/B3/B3.1/B3.2-InvestigationRunne
 
 import argparse
 import json
-import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
 from claude_metrics import run_claude
+from cp7_metrics import (
+    CallTokens,
+    PlanArtifacts,
+    StageTokens,
+    build_result,
+    build_totals,
+    parse_plan_queries,
+    score_generic,
+)
 from cp7_tasks import TASKS
 from prompts import (
     CHANGE_SCOPE_POLICY,
@@ -45,36 +52,6 @@ from run_comparison import (
 PLAN_POLICIES = {
     "change_scope": CHANGE_SCOPE_POLICY,
 }
-
-TEST_GAP_PATTERN = re.compile(
-    r"(テスト|test).{0,40}(存在しない|無い|ない|不在|未整備|不足|見つから|なし)"
-)
-
-
-def score_generic(text: str, task: dict[str, Any]) -> dict[str, Any]:
-    lowered = text.lower()
-    expected_files = task["expected_files"]
-    expected_symbols = task["expected_symbols"]
-    expected_extended = task.get("expected_extended", [])
-
-    found_files = [item for item in expected_files if item.lower() in lowered]
-    found_symbols = [item for item in expected_symbols if item.lower() in lowered]
-    found_extended = [item for item in expected_extended if item.lower() in lowered]
-
-    expected_total = len(expected_files) + len(expected_symbols) + len(expected_extended)
-    found_total = len(found_files) + len(found_symbols) + len(found_extended)
-
-    return {
-        "found_files": found_files,
-        "missing_files": [item for item in expected_files if item not in found_files],
-        "found_symbols": found_symbols,
-        "missing_symbols": [item for item in expected_symbols if item not in found_symbols],
-        "found_extended": found_extended,
-        "missing_extended": [item for item in expected_extended if item not in found_extended],
-        "coverage": round(found_total / expected_total, 3) if expected_total else 1.0,
-        "mentions_test_gap": bool(TEST_GAP_PATTERN.search(text)),
-        "answer_chars": len(text),
-    }
 
 
 def run_task(
@@ -129,20 +106,8 @@ def run_task(
     plan_path = run_dir / f"CP7-{key}-{iteration}-plan.yaml"
     plan_path.write_text(plan_text, encoding="utf-8")
 
-    plan_error = ""
-    query_count = 0
-    tool_breakdown: dict[str, int] = {}
-    queries: list[dict[str, Any]] = []
-    try:
-        parsed = yaml.safe_load(plan_text)
-        queries = parsed.get("queries", []) if isinstance(parsed, dict) else []
-        query_count = len(queries)
-        for query in queries:
-            tool = str(query.get("tool", "ornith(unspecified)"))
-            tool_breakdown[tool] = tool_breakdown.get(tool, 0) + 1
-    except yaml.YAMLError as exc:
-        plan_error = str(exc)
-
+    queries, tool_breakdown, plan_error = parse_plan_queries(plan_text)
+    query_count = len(queries)
     path_categories = categorize_plan_paths(queries, repository_files, snapshot)
 
     scout = run_reposcout(
@@ -174,81 +139,28 @@ def run_task(
     )
 
     quality = score_generic(main_final_run.final_text, task)
-    scout_summary = {k: v for k, v in scout.items() if k != "evidence"}
-
-    main_opus_input_tokens = brief_run.total_input_tokens + main_final_run.total_input_tokens
-    main_opus_output_tokens = brief_run.output_tokens + main_final_run.output_tokens
-    explorer_sonnet_input_tokens = explorer_plan_run.total_input_tokens
-    explorer_sonnet_output_tokens = explorer_plan_run.output_tokens
-    total_input_tokens = main_opus_input_tokens + explorer_sonnet_input_tokens
-    total_output_tokens = main_opus_output_tokens + explorer_sonnet_output_tokens
-    effective_query_rate = (
-        round(scout.get("effective_query_count", 0) / query_count, 3) if query_count else 0.0
+    tokens = StageTokens(
+        first_main=CallTokens(brief_run.total_input_tokens, brief_run.output_tokens),
+        final_main=CallTokens(main_final_run.total_input_tokens, main_final_run.output_tokens),
+        planner=CallTokens(explorer_plan_run.total_input_tokens, explorer_plan_run.output_tokens),
+        cost_usd=brief_run.cost_usd + explorer_plan_run.cost_usd + main_final_run.cost_usd,
+        elapsed_seconds=(
+            brief_run.wall_seconds
+            + explorer_plan_run.wall_seconds
+            + scout["elapsed_seconds"]
+            + main_final_run.wall_seconds
+        ),
     )
-
-    expected_extended = task.get("expected_extended", [])
-    target_enclosing_consumer_evidence_present = (
-        len(quality["missing_extended"]) == 0 if expected_extended else None
-    )
-
-    return {
-        "task_key": key,
-        "task_label": task["label"],
+    meta = {
         "planner_model": planner_model,
         "plan_policy_applied": policy_key or None,
-        "handoff": handoff,
-        "plan_path": str(plan_path),
-        "plan_error": plan_error,
-        "plan_query_count": query_count,
-        "plan_tool_breakdown": tool_breakdown,
-        "quality": quality,
-        "reposcout": scout_summary,
+        "query_count": query_count,
         "repo_leaks": repo_leaks,
-        "totals": {
-            "coverage": quality["coverage"],
-            "planner_model": planner_model,
-            "plan_policy_applied": policy_key or None,
-            "main_opus_input_tokens": main_opus_input_tokens,
-            "main_opus_output_tokens": main_opus_output_tokens,
-            # Kept under the original key names for schema parity with earlier
-            # CP7 results; planner_* below is the planner-model-neutral name,
-            # since CP7-D swaps this stage from Sonnet to Opus.
-            "explorer_sonnet_input_tokens": explorer_sonnet_input_tokens,
-            "explorer_sonnet_output_tokens": explorer_sonnet_output_tokens,
-            "planner_input_tokens": explorer_sonnet_input_tokens,
-            "planner_output_tokens": explorer_sonnet_output_tokens,
-            "total_input_tokens": total_input_tokens,
-            "total_output_tokens": total_output_tokens,
-            "total_cost_usd": round(
-                brief_run.cost_usd + explorer_plan_run.cost_usd + main_final_run.cost_usd,
-                6,
-            ),
-            "elapsed_seconds": round(
-                brief_run.wall_seconds
-                + explorer_plan_run.wall_seconds
-                + scout["elapsed_seconds"]
-                + main_final_run.wall_seconds,
-                3,
-            ),
-            "reposcout_query_count": query_count,
-            "effective_query_count": scout.get("effective_query_count", 0),
-            "effective_query_rate": effective_query_rate,
-            "failed_query_count": scout.get("failed_query_count", 0),
-            "empty_evidence_count": scout.get("empty_evidence_count", 0),
-            "evidence_chars": scout.get("evidence_chars", 0),
-            "nonexistent_path_count": path_categories["nonexistent_path_count"],
-            "nonexistent_paths": path_categories["nonexistent_paths"],
-            "out_of_scope_path_count": path_categories["out_of_scope_path_count"],
-            "out_of_scope_paths": path_categories["out_of_scope_paths"],
-            "target_enclosing_consumer_evidence_present": (
-                target_enclosing_consumer_evidence_present
-            ),
-            # No Explorer synthesis stage in B3.2, so there is no tool access
-            # at all between RepoScout and Main -- structurally 0.
-            "explorer_additional_tool_calls": 0,
-            "repo_leaks": repo_leaks,
-        },
     }
+
+    plan = PlanArtifacts(handoff, plan_path, queries, tool_breakdown, plan_error)
+    totals = build_totals(quality, scout, path_categories, tokens, meta)
+    return build_result(task, plan, quality, scout, totals)
 
 
 def main() -> int:

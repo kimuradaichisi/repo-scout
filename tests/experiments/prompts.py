@@ -409,3 +409,98 @@ Change-Scope Policy(このPlanに必ず反映すること):
 5. 関連testの有無を確認するクエリを含める。
 direct referencesが局所的であることだけを理由に調査を終了しないこと。
 """
+
+# --- CP7-E: Main-Owned Investigation Planning ----------------------------
+#
+# CP7-D showed the Plan quality gap was the planner model, not the
+# Investigation Policy wording. Rather than pay for a second Opus call, the
+# Main agent writes the Brief and the RepoScout Plan in its first call --
+# it already holds the task context that the Brief exists to transfer.
+#
+# Two structural consequences of merging the calls, both forced:
+#   - Main must see REPOSITORY FILES up front, since it now writes the Plan.
+#     The file list itself is unchanged (`git ls-files src tests/unit`); only
+#     the stage it is injected at moves.
+#   - The Brief's OUTPUT CONTRACT section addressed the Explorer, which no
+#     longer exists. It now names the same four evidence facets for Main's
+#     own final analysis, so the handoff keeps the same five-section shape.
+# The INVESTIGATION POLICY rules are carried over verbatim, and no
+# change-scope-specific guidance is added.
+
+MAIN_BRIEF_AND_PLAN_PROMPT_TEMPLATE = """\
+あなたはMain Agent(Opus)です。今回はExplorer Subagentを使いません。
+あなた自身が Investigation Brief と RepoScout Investigation Plan の
+両方を、この1回の出力で生成します。
+
+調査目的: {investigation_goal}
+
+確認したい観点:
+{confirmation_points}
+
+REPOSITORY FILES(実在するファイルはこれがすべてです):
+{repository_files}
+
+出力は必ず次の2部構成とし、この順序・この区切り行のまま出力してください。
+
+=== BRIEF ===
+以下の5セクションを、この見出しのまま・この順序で出力してください。
+見出し以外の文章やコードフェンスは付けないでください。
+REPOSITORY FILES セクションの本文には "<<<PLACEHOLDER>>>" という1行だけを
+書いてください（実際のファイル一覧は後で機械的に差し込まれます）。
+
+TASK
+<実行すべき調査タスクを1〜2文で>
+
+INVESTIGATION POLICY
+<調査で守るべきルールを箇条書きで。次を必ず含める:
+存在しないfile pathを推測しない/
+read は REPOSITORY FILES に存在するpathだけに対して行う/
+symbolの所在が不明な場合はpathを推測せず最初にrgを使う/
+git_logも実在確認済みpathだけに使う/
+独立した検索は可能な限りbatchでRepoScout Planに含める/
+RepoScoutのdeterministic query(rg/read/git_log)だけでEvidenceを収集し、自由な広域探索は行わない/
+RepoScout Evidenceが十分なら追加のgrep/readを行わない>
+
+REPOSITORY FILES
+<<<PLACEHOLDER>>>
+
+REQUIRED EVIDENCE
+<収集すべきEvidenceを箇条書きで。上記の確認したい観点を反映する>
+
+OUTPUT CONTRACT
+RepoScoutが返すEvidenceは、最終分析で次の4観点に整理して用いる。
+FACTS
+RELATIONS
+SOURCE LOCATIONS
+UNKNOWN
+
+=== PLAN ===
+上記Briefに従い、RepoScout Investigation Planを生成してください。
+この時点では grep/read を自分で実行しないでください。
+
+利用可能なtool:
+- rg
+- read
+- git_log
+
+この区切り行の後はYAMLのみ出力してください。
+
+スキーマ:
+goal: <調査目的>
+queries:
+  - id: Q1
+    tool: rg            # rg | read | git_log のいずれかを必ず指定する
+    pattern: <検索文字列>
+    paths: [<検索対象パス>]
+  - id: Q2
+    tool: read
+    file: <ファイルパス>
+    start_line: <開始行>
+    end_line: <終了行>
+  - id: Q3
+    tool: git_log
+    git_args: [<git log に渡す引数>]
+""".replace("<<<PLACEHOLDER>>>", REPOSITORY_FILES_PLACEHOLDER)
+
+BRIEF_PLAN_SEPARATOR = "=== PLAN ==="
+BRIEF_SECTION_HEADER = "=== BRIEF ==="
