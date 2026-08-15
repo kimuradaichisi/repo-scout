@@ -2,7 +2,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator  # pyright: ignore[reportMissingImports]
 
 
 class QueryTool(StrEnum):
