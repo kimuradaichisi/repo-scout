@@ -316,3 +316,96 @@ Briefと生のRepoScout Evidenceだけが根拠です(要約は挟まれてい�
 {evidence}
 --- EVIDENCE END ---
 """
+
+# --- CP7: Task Generalization -------------------------------------------
+#
+# Same B3.2 architecture and same wording as MAIN_BRIEF_PROMPT /
+# MAIN_FINAL_ANALYSIS_PROMPT_TEMPLATE_B3_1, just with the investigation
+# target and confirmation points parameterized instead of hardcoded to
+# InvestigationRunner. No prompt engineering changes — this is the same
+# structure applied to a different question, which is exactly what CP7
+# tests.
+
+MAIN_BRIEF_PROMPT_TEMPLATE = """\
+あなたはMain Agent(Opus)です。これから Sonnet Explorer Subagent に
+Repository探索を委任します。Explorerには会話履歴を一切渡しません。
+あなたがこれから出力する Investigation Brief だけが、Explorerに渡る
+唯一の情報になります。
+
+調査目的: {investigation_goal}
+
+確認したい観点:
+{confirmation_points}
+
+以下の5セクションを、この見出しのまま・この順序で出力してください。
+見出し以外の文章やコードフェンスは付けないでください。
+REPOSITORY FILES セクションの本文には "<<<PLACEHOLDER>>>" という1行だけを
+書いてください（実際のファイル一覧は後で機械的に差し込まれます）。
+
+TASK
+<Explorerが実行すべき調査タスクを1〜2文で>
+
+INVESTIGATION POLICY
+<Explorerが守るべきルールを箇条書きで。次を必ず含める:
+存在しないfile pathを推測しない/
+read は REPOSITORY FILES に存在するpathだけに対して行う/
+symbolの所在が不明な場合はpathを推測せず最初にrgを使う/
+git_logも実在確認済みpathだけに使う/
+独立した検索は可能な限りbatchでRepoScout Planに含める/
+RepoScoutのdeterministic query(rg/read/git_log)だけでEvidenceを収集し、自由な広域探索は行わない/
+RepoScout Evidenceが十分なら追加のgrep/readを行わない>
+
+REPOSITORY FILES
+<<<PLACEHOLDER>>>
+
+REQUIRED EVIDENCE
+<Explorerが収集すべきEvidenceを箇条書きで。上記の確認したい観点を反映する>
+
+OUTPUT CONTRACT
+Explorerは以下の4セクションだけをMainへ返すこと。それ以外の文章や
+subagent内の会話ログ・transcriptを含めてはならない。
+FACTS
+RELATIONS
+SOURCE LOCATIONS
+UNKNOWN
+""".replace("<<<PLACEHOLDER>>>", REPOSITORY_FILES_PLACEHOLDER)
+
+MAIN_FINAL_ANALYSIS_PROMPT_TEMPLATE_GENERIC = """\
+RepoScoutが収集した以下のEvidenceを使って、下記Investigation Brief
+記載の調査目的に沿って分析してください。あなたはMain Agent(Opus)
+です。Explorerとの会話履歴は持っていません。この
+Briefと生のRepoScout Evidenceだけが根拠です(要約は挟まれていません)。
+
+確認対象:
+{confirmation_points}
+
+実装はしないでください。
+
+--- BRIEF START ---
+{handoff}
+--- BRIEF END ---
+
+--- EVIDENCE START ---
+{evidence}
+--- EVIDENCE END ---
+"""
+
+# --- CP7.1: Change-Scope Planning Policy ---------------------------------
+#
+# CP7's change-scope task stopped at direct references to the changed
+# implementation detail and never searched for the symbol that owns it, so
+# it missed that symbol's consumers. This is a Plan-generation instruction
+# only -- it names no concrete symbol, so it generalizes to any "what do I
+# need to touch to change X" task rather than encoding this one case.
+CHANGE_SCOPE_POLICY = """
+Change-Scope Policy(このPlanに必ず反映すること):
+1. 変更対象のdirect referencesを確認するクエリを含める。
+2. 変更対象が constant / field / private function / helper 等の
+   局所implementation detailである場合、それを所有する
+   enclosing class / function / module を特定するクエリを含める。
+3. そのenclosing symbol自体の利用箇所(consumer)を検索するクエリを含める
+   (定数名ではなく、enclosing symbolの名前で検索すること)。
+4. consumer側のbehavior/contractへの影響を確認できるクエリを含める。
+5. 関連testの有無を確認するクエリを含める。
+direct referencesが局所的であることだけを理由に調査を終了しないこと。
+"""
