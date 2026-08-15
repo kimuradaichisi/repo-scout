@@ -42,3 +42,12 @@ clean:
 		build
 	find . -type d -name '__pycache__' -prune -exec rm -rf {} +
 	find . -type f -name '*.pyc' -delete
+
+experiment:
+	uv run python tests/experiments/run_ornith_investigation.py
+
+experiment-deterministic:
+	uv run python tests/experiments/run_deterministic_investigation.py
+
+experiment-comparison:
+	uv run python tests/experiments/run_comparison.py --repeat $(or $(REPEAT),1)

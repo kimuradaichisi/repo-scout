@@ -1,4 +1,5 @@
 import argparse
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -44,8 +45,14 @@ def run_query(args: argparse.Namespace) -> int:
         end_line=args.end_line,
         git_args=args.git_arg,
     )
+
+    started = time.perf_counter()
     result = QueryRunner().execute(args.root.resolve(), query)
+    elapsed = time.perf_counter() - started
+
     print(result.model_dump_json(indent=2))
+    print(f"Elapsed: {elapsed:.3f} sec")
+
     return 0 if result.status == "PASS" else 1
 
 
@@ -54,14 +61,25 @@ def run_investigate(args: argparse.Namespace) -> int:
     plan = InvestigationPlan.model_validate(payload)
 
     run_dir = args.output or _default_run_dir(args.root.resolve())
+
+    started = time.perf_counter()
     results = InvestigationRunner().execute(
         root=args.root.resolve(),
         plan=plan,
         run_dir=run_dir,
     )
+    elapsed = time.perf_counter() - started
+
+    passed = sum(item.status == "PASS" for item in results)
+    failed = len(results) - passed
 
     print(f"Evidence Pack: {run_dir / 'evidence.md'}")
-    return 0 if all(item.status == "PASS" for item in results) else 1
+    print(f"Queries: {len(results)}")
+    print(f"PASS: {passed}")
+    print(f"ERROR: {failed}")
+    print(f"Elapsed: {elapsed:.3f} sec")
+
+    return 0 if failed == 0 else 1
 
 
 def _default_run_dir(root: Path) -> Path:
@@ -71,10 +89,13 @@ def _default_run_dir(root: Path) -> Path:
 
 def main() -> int:
     args = build_parser().parse_args()
+
     if args.command == "query":
         return run_query(args)
+
     if args.command == "investigate":
         return run_investigate(args)
+
     return 2
 
 

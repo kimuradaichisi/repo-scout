@@ -1,0 +1,18 @@
+cases:
+  - id: Q1
+    title: definition lookup
+    instruction: >
+      src/reposcout 配下から InvestigationRunner の定義箇所を検索し、
+      ファイル名・行番号・該当行だけ返せ。
+
+  - id: Q2
+    title: reference lookup
+    instruction: >
+      src/reposcout 配下から EvidenceWriter を参照している箇所を検索し、
+      ファイル名・行番号・該当行だけ返せ。
+
+  - id: Q3
+    title: behavioral lookup
+    instruction: >
+      InvestigationPlan を実行しているコード位置を調査し、
+      関連するファイル名・シンボル名・行番号だけ返せ。

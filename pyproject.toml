@@ -30,6 +30,9 @@ packages = ["src/reposcout"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Experiment runs write copies of the test suite under results/; collecting
+# them clashes with the real tests of the same name.
+norecursedirs = ["tests/experiments/results"]
 
 [tool.ruff]
 line-length = 100

@@ -1,0 +1,22 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    "provider": {
+        "ollama": {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "ornith-opencode:latest",
+            "options": {
+                "baseURL": "http://localhost:11434/v1"
+            },
+            "models": {
+                "ornith-opencode": {
+                    "name": "ornith-opencode:latest",
+                    "limit": {
+                        "context": 32768,
+                        "output": 8192
+                    }
+                }
+            }
+        }
+    },
+    "model": "ollama/ornith-opencode"
+}
