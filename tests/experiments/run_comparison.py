@@ -229,6 +229,55 @@ def count_fictional_paths(queries: list[dict[str, Any]], repository_files: str) 
     return len(fictional)
 
 
+def categorize_plan_paths(
+    queries: list[dict[str, Any]], repository_files: str, snapshot: Path
+) -> dict[str, Any]:
+    """Split "not in Repository Files" paths into two distinct failure modes.
+
+    count_fictional_paths() (above) conflated these: a path missing from
+    Repository Files could be genuinely invented (nonexistent anywhere), or
+    it could be a real file/dir on disk that the Explorer reached outside
+    the scope it was explicitly given (a Policy compliance gap, not a
+    hallucination). CP7's change-scope task hit the second case (README.md,
+    docs) and it shouldn't score the same as inventing a path outright.
+
+    Applied going forward only — does not retroactively touch prior results.
+    """
+    files = set(repository_files.splitlines())
+    known = {"."} | files
+    for file_path in files:
+        parts = file_path.split("/")
+        known.update("/".join(parts[:i]) for i in range(1, len(parts)))
+
+    out_of_scope: set[str] = set()
+    nonexistent: set[str] = set()
+    for query in queries:
+        if not isinstance(query, dict):
+            continue
+        candidates: list[str] = []
+        file_field = query.get("file")
+        if isinstance(file_field, str):
+            candidates.append(file_field)
+        paths_field = query.get("paths")
+        if isinstance(paths_field, list):
+            candidates.extend(path for path in paths_field if isinstance(path, str))
+
+        for path in candidates:
+            if not path or path in known:
+                continue
+            if (snapshot / path).exists():
+                out_of_scope.add(path)
+            else:
+                nonexistent.add(path)
+
+    return {
+        "nonexistent_path_count": len(nonexistent),
+        "nonexistent_paths": sorted(nonexistent),
+        "out_of_scope_path_count": len(out_of_scope),
+        "out_of_scope_paths": sorted(out_of_scope),
+    }
+
+
 def count_repo_leaks(transcript: Path, repo_root: Path) -> int:
     """Count references to the real repository inside a run's transcript.
 
