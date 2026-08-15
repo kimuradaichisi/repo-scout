@@ -199,6 +199,36 @@ def list_repository_files(snapshot: Path) -> str:
     return completed.stdout.strip()
 
 
+def count_fictional_paths(queries: list[dict[str, Any]], repository_files: str) -> int:
+    """Count distinct paths in a generated Plan that aren't real.
+
+    `repository_files` (from `git ls-files`) lists files only, but a query's
+    `paths` legitimately names a directory to search recursively (e.g. "src",
+    "tests", "."). Those are real, existing scopes, not invented paths — a
+    path only counts as fictional if it is neither a tracked file nor a
+    prefix directory of one.
+    """
+    files = set(repository_files.splitlines())
+    known = {"."} | files
+    for file_path in files:
+        parts = file_path.split("/")
+        known.update("/".join(parts[:i]) for i in range(1, len(parts)))
+
+    fictional: set[str] = set()
+    for query in queries:
+        if not isinstance(query, dict):
+            continue
+        candidates: list[str] = []
+        file_field = query.get("file")
+        if isinstance(file_field, str):
+            candidates.append(file_field)
+        paths_field = query.get("paths")
+        if isinstance(paths_field, list):
+            candidates.extend(path for path in paths_field if isinstance(path, str))
+        fictional.update(path for path in candidates if path and path not in known)
+    return len(fictional)
+
+
 def count_repo_leaks(transcript: Path, repo_root: Path) -> int:
     """Count references to the real repository inside a run's transcript.
 
@@ -834,6 +864,157 @@ def run_pattern_b3_1(
     }
 
 
+def run_pattern_b3_2(
+    snapshot: Path,
+    run_dir: Path,
+    repo_root: Path,
+    iteration: int,
+) -> dict[str, Any]:
+    """B3.2 = B3.1 structure, fresh Plan each iteration, RepoScout now runs
+    RipgrepExecutor's selective bounded context (CP5b): <=3 paths gets +/-5
+    lines, broader sweeps stay locator-only. No synthesis stage.
+
+    This is CP6's fixed architecture:
+      Main(Opus) Brief -> Explorer(Sonnet) Plan -> RepoScout (selective
+      context) -> Main(Opus) final.
+    """
+    repository_files = list_repository_files(snapshot)
+
+    brief_run = run_claude(
+        MAIN_BRIEF_PROMPT,
+        label=f"B3.2-main-brief-{iteration}",
+        root=snapshot,
+        transcript_path=run_dir / f"B3.2-{iteration}-main-brief.jsonl",
+        model=MAIN_MODEL,
+        allowed_tools="",
+        disallowed_tools=NO_TOOLS_DISALLOWED,
+    )
+    brief_text = brief_run.final_text.strip()
+    if REPOSITORY_FILES_PLACEHOLDER in brief_text:
+        handoff = brief_text.replace(REPOSITORY_FILES_PLACEHOLDER, repository_files)
+    else:
+        handoff = f"{brief_text}\n\nREPOSITORY FILES\n{repository_files}"
+
+    explorer_plan_transcript = run_dir / f"B3.2-{iteration}-explorer-plan.jsonl"
+    explorer_plan_run = run_claude(
+        EXPLORER_PLAN_PROMPT_TEMPLATE.format(handoff=handoff),
+        label=f"B3.2-explorer-plan-{iteration}",
+        root=snapshot,
+        transcript_path=explorer_plan_transcript,
+        model=EXPLORER_MODEL,
+        allowed_tools="",
+        disallowed_tools=NO_TOOLS_DISALLOWED,
+    )
+
+    plan_text = extract_yaml(explorer_plan_run.final_text)
+    plan_path = run_dir / f"B3.2-{iteration}-plan.yaml"
+    plan_path.write_text(plan_text, encoding="utf-8")
+
+    plan_error = ""
+    query_count = 0
+    tool_breakdown: dict[str, int] = {}
+    queries: list[dict[str, Any]] = []
+    try:
+        parsed = yaml.safe_load(plan_text)
+        queries = parsed.get("queries", []) if isinstance(parsed, dict) else []
+        query_count = len(queries)
+        for query in queries:
+            tool = str(query.get("tool", "ornith(unspecified)"))
+            tool_breakdown[tool] = tool_breakdown.get(tool, 0) + 1
+    except yaml.YAMLError as exc:
+        plan_error = str(exc)
+
+    fictional_path_count = count_fictional_paths(queries, repository_files)
+
+    scout = run_reposcout(
+        snapshot=snapshot,
+        plan_path=plan_path,
+        output_dir=run_dir / f"B3.2-{iteration}-scout",
+        repo_root=repo_root,
+    )
+
+    main_final_transcript = run_dir / f"B3.2-{iteration}-main-final.jsonl"
+    main_final_prompt = MAIN_FINAL_ANALYSIS_PROMPT_TEMPLATE_B3_1.format(
+        handoff=handoff, evidence=scout["evidence"]
+    )
+    main_final_run = run_claude(
+        main_final_prompt,
+        label=f"B3.2-main-final-{iteration}",
+        root=snapshot,
+        transcript_path=main_final_transcript,
+        model=MAIN_MODEL,
+        allowed_tools="",
+        disallowed_tools=NO_TOOLS_DISALLOWED,
+    )
+    (run_dir / f"B3.2-{iteration}-answer.md").write_text(
+        main_final_run.final_text, encoding="utf-8"
+    )
+
+    repo_leaks = count_repo_leaks(explorer_plan_transcript, repo_root) + count_repo_leaks(
+        main_final_transcript, repo_root
+    )
+
+    scout_summary = {key: value for key, value in scout.items() if key != "evidence"}
+    main_opus_input_tokens = brief_run.total_input_tokens + main_final_run.total_input_tokens
+    main_opus_output_tokens = brief_run.output_tokens + main_final_run.output_tokens
+    explorer_sonnet_input_tokens = explorer_plan_run.total_input_tokens
+    explorer_sonnet_output_tokens = explorer_plan_run.output_tokens
+
+    return {
+        "main_brief": brief_run.to_dict(),
+        "explorer_plan": explorer_plan_run.to_dict(),
+        "main_final": main_final_run.to_dict(),
+        "reposcout": scout_summary,
+        "repo_leaks": repo_leaks,
+        "handoff": handoff,
+        "plan_path": str(plan_path),
+        "plan_error": plan_error,
+        "plan_query_count": query_count,
+        "plan_tool_breakdown": tool_breakdown,
+        "fictional_path_count": fictional_path_count,
+        "quality": score_answer(main_final_run.final_text),
+        "totals": {
+            "main_opus_input_tokens": main_opus_input_tokens,
+            "main_opus_output_tokens": main_opus_output_tokens,
+            "explorer_sonnet_input_tokens": explorer_sonnet_input_tokens,
+            "explorer_sonnet_output_tokens": explorer_sonnet_output_tokens,
+            "handoff_brief_chars": len(handoff),
+            "evidence_pack_chars": 0,  # no synthesis stage in B3.2
+            "repository_files_count": (
+                len(repository_files.splitlines()) if repository_files else 0
+            ),
+            "repository_files_chars": len(repository_files),
+            "fictional_path_count": fictional_path_count,
+            # No Explorer synthesis stage exists in B3.2, so there is no tool
+            # access at all between RepoScout and Main — these are always 0,
+            # kept for schema parity with B3/B3.1 rather than as a live signal.
+            "explorer_tool_calls": 0,
+            "explorer_fallback_read_calls": 0,
+            "explorer_fallback_search_calls": 0,
+            "reposcout_query_count": query_count,
+            "effective_query_count": scout.get("effective_query_count", 0),
+            "failed_query_count": scout.get("failed_query_count", 0),
+            "empty_evidence_count": scout.get("empty_evidence_count", 0),
+            "failed_read_count": scout.get("failed_read_count", 0),
+            "failed_search_count": scout.get("failed_search_count", 0),
+            "evidence_chars": scout.get("evidence_chars", 0),
+            "total_input_tokens": main_opus_input_tokens + explorer_sonnet_input_tokens,
+            "total_output_tokens": main_opus_output_tokens + explorer_sonnet_output_tokens,
+            "total_cost_usd": round(
+                brief_run.cost_usd + explorer_plan_run.cost_usd + main_final_run.cost_usd,
+                6,
+            ),
+            "wall_seconds": round(
+                brief_run.wall_seconds
+                + explorer_plan_run.wall_seconds
+                + scout["elapsed_seconds"]
+                + main_final_run.wall_seconds,
+                3,
+            ),
+        },
+    }
+
+
 def compare(a_totals: dict[str, Any], b_totals: dict[str, Any]) -> dict[str, Any]:
     def reduction(key: str) -> float | None:
         base = _value(a_totals.get(key))
@@ -1089,6 +1270,7 @@ B3_KEYS = [
     "evidence_pack_chars",
     "repository_files_count",
     "repository_files_chars",
+    "fictional_path_count",
     "explorer_tool_calls",
     "explorer_fallback_read_calls",
     "explorer_fallback_search_calls",
@@ -1184,6 +1366,7 @@ def write_markdown_b3(path: Path, report: dict[str, Any]) -> None:
                 f"- Repository Files: {totals['repository_files_count']} files / "
                 f"{totals['repository_files_chars']} chars",
                 f"- Plan query数: {item['plan_query_count']} ({item['plan_tool_breakdown']})",
+                f"- fictional_path_count: {totals.get('fictional_path_count', 0)}",
                 f"- Query結果: 有効 {totals['effective_query_count']} / "
                 f"失敗 {totals['failed_query_count']} "
                 f"(read {totals['failed_read_count']}, search {totals['failed_search_count']}) / "
@@ -1208,6 +1391,10 @@ def write_markdown_b3(path: Path, report: dict[str, Any]) -> None:
 B3_RUNNERS = {
     "b3": (run_pattern_b3, "Main(Opus) -> Explorer(Sonnet) -> RepoScout -> Explorer -> Main"),
     "b3.1": (run_pattern_b3_1, "Main(Opus) -> Explorer(Sonnet) -> RepoScout -> Main"),
+    "b3.2": (
+        run_pattern_b3_2,
+        "Main(Opus) -> Explorer(Sonnet) -> RepoScout(selective context) -> Main",
+    ),
 }
 
 
@@ -1278,12 +1465,13 @@ def main() -> int:
     parser.add_argument("--snapshot-dir", type=Path, default=None)
     parser.add_argument(
         "--pattern",
-        choices=["b1", "b2", "b3", "b3.1"],
+        choices=["b1", "b2", "b3", "b3.1", "b3.2"],
         default="b1",
         help=(
             "b1 = plan + rg/read/git_log only; b2 = b1 + Repository Files skeleton; "
             "b3 = Main(Opus)/Explorer(Sonnet) split on top of b2 (no A run, own report); "
-            "b3.1 = b3 minus the Explorer synthesis call (Main reads raw RepoScout evidence)"
+            "b3.1 = b3 minus the Explorer synthesis call (Main reads raw RepoScout evidence); "
+            "b3.2 = b3.1 + RepoScout selective bounded rg context (CP5b)"
         ),
     )
     args = parser.parse_args()
@@ -1298,7 +1486,7 @@ def main() -> int:
     snapshot = build_snapshot(repo_root, snapshot_root / timestamp / "target")
     print(f"Snapshot: {snapshot}")
 
-    if args.pattern in ("b3", "b3.1"):
+    if args.pattern in B3_RUNNERS:
         return _run_b3(snapshot, run_dir, repo_root, timestamp, args.repeat, args.pattern)
 
     iterations: list[dict[str, Any]] = []
