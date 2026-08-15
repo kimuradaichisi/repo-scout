@@ -5,12 +5,27 @@ used through CP0-CP6, and the three tasks target different subsystems from
 each other. required evidence / coverage ground truth below was written by
 reading the source once, before any B3.2 run against these tasks — it is not
 adjusted after seeing results.
+
+CP7-F adds a `planner_route` field. It is a fixed, hand-declared property of
+the task, not something inferred at run time: CP7/CP7-D/CP7-E showed that
+change-scope investigations need a planner that will climb from the change
+target to its enclosing symbol and consumers, while symbol-impact and
+behavior-localization investigations reached full coverage with the Sonnet
+planner. Routing therefore belongs in the experiment definition, so a task's
+planner is auditable from this file alone and no LLM classifier sits in the
+measured path. Ground truth below is unchanged by CP7-F.
 """
+
+# Route keys consumed by run_cp7f_task.py.
+SONNET_PLANNER = "sonnet_planner"
+MAIN_OWNED = "main_owned"
 
 TASKS = [
     {
         "key": "symbol_impact",
         "label": "Symbol impact investigation",
+        # Definition/reference lookup: CP7 reached coverage 1.0 with Sonnet.
+        "planner_route": SONNET_PLANNER,
         "investigation_goal": "EvidenceWriter の変更影響範囲を調査する",
         "confirmation_points": [
             "定義箇所",
@@ -33,6 +48,9 @@ TASKS = [
     {
         "key": "behavior_localization",
         "label": "Behavior localization investigation",
+        # Locating where an existing behavior is implemented: CP7 reached
+        # coverage 1.0 with Sonnet.
+        "planner_route": SONNET_PLANNER,
         "investigation_goal": (
             "tool未指定、または対応するexecutorが存在しないqueryが、"
             "どこでどのように処理されるか(fallback挙動)を特定する"
@@ -60,6 +78,10 @@ TASKS = [
     {
         "key": "change_scope",
         "label": "Change-scope investigation",
+        # Impact that depends on indirect consumers: Sonnet stopped at direct
+        # references (CP7, coverage 0.667). CP7-E's main-owned Opus planning
+        # reached 1.0 without a Change-Scope Policy in the prompt.
+        "planner_route": MAIN_OWNED,
         "investigation_goal": (
             "rgクエリに付与するbounded context行数(CONTEXT_LINES)と、"
             "選択的contextのしきい値(NARROW_PATH_THRESHOLD)を変更する場合に、"
