@@ -577,3 +577,73 @@ RELATIONS と SOURCE LOCATIONS の記述規則:
 # it would re-introduce the wording sensitivity v2 exists to remove.
 V2_CANONICAL_SECTIONS = ("FACTS", "RELATIONS", "SOURCE LOCATIONS")
 V2_ALL_SECTIONS = ("FACTS", "RELATIONS", "SOURCE LOCATIONS", "UNKNOWN", "SUMMARY")
+
+
+# --- CP7-H: Compact Structured Result Contract (v3) ----------------------
+#
+# v2 (FACTS / RELATIONS / SOURCE LOCATIONS / UNKNOWN / SUMMARY) fixed CP7-F's
+# wording-sensitivity failure but paid for it by restating the same fact
+# under multiple headings -- a class's construction site appeared once as a
+# FACT, once as a RELATION, and once as a SOURCE LOCATION. v3 collapses the
+# three canonical sections into one: each claim carries its own subject,
+# predicate, object, and source together, so a fact is written once instead
+# of three times. UNKNOWN and SUMMARY are unchanged in role from v2.
+MAIN_FINAL_ANALYSIS_PROMPT_TEMPLATE_V3 = """\
+RepoScoutが収集した以下のEvidenceを使って、下記Investigation Brief
+記載の調査目的に沿って分析してください。あなたはMain Agent(Opus)
+です。Explorerとの会話履歴は持っていません。この
+Briefと生のRepoScout Evidenceだけが根拠です(要約は挟まれていません)。
+
+確認対象:
+{confirmation_points}
+
+実装はしないでください。
+
+OUTPUT CONTRACT(この3sectionをこの順序・この見出しで必ず出力すること):
+
+## CLAIMS
+必要な事実・関係を、それぞれ1回だけ記述してください。
+各claimは以下の4項目を持つ箇条書きとします。
+
+    - subject: <symbol/file>
+      predicate: <関係、例: DEFINES / USES / CALLS / DEPENDS_ON / CONSTRUCTS / TESTS>
+      object: <symbol/file>
+      source: <path>:<line>
+
+ルール:
+1. Evidenceに存在するcanonical symbol名をそのまま使用すること。
+2. file pathもEvidence上の表記をそのまま使用すること。
+3. 同一fact/relationを複数claimへ重複させないこと。
+4. source locationはclaim自身に付与すること(別sectionへ分離しない)。
+5. Evidenceにない情報を推測しないこと。
+6. relationが重要な場合、自然文だけで済ませず
+   subject/predicate/objectとして表現すること。
+7. 列挙を途中で打ち切らないこと(「他」「...」で終わらせない)。
+8. ただしEvidence全体を要約し直す必要はなく、
+   確認対象への回答に必要なclaimだけを出すこと。
+
+## UNKNOWN
+Evidenceだけでは判断できない内容のみ記載してください。
+推測で埋めないでください。該当がなければ "none" とだけ書いてください。
+
+## SUMMARY
+人間向けの短い説明です(600文字以内)。
+- CLAIMSの内容を長く繰り返さないこと。
+- canonical symbolの列挙目的には使わないこと(それはCLAIMSの役割)。
+- ここは採点対象外です。
+
+--- BRIEF START ---
+{handoff}
+--- BRIEF END ---
+
+--- EVIDENCE START ---
+{evidence}
+--- EVIDENCE END ---
+"""
+
+# Canonical (machine-scored) section of the v3 contract. Only CLAIMS is
+# scored -- UNKNOWN has no ground truth to check and SUMMARY is explicitly
+# the section allowed to paraphrase.
+V3_CANONICAL_SECTIONS = ("CLAIMS",)
+V3_ALL_SECTIONS = ("CLAIMS", "UNKNOWN", "SUMMARY")
+V3_SUMMARY_MAX_CHARS = 600
