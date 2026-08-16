@@ -504,3 +504,76 @@ queries:
 
 BRIEF_PLAN_SEPARATOR = "=== PLAN ==="
 BRIEF_SECTION_HEADER = "=== BRIEF ==="
+
+
+# --- CP7-G: Main Final Output Contract v2 --------------------------------
+#
+# CP7-F's change-scope answer identified the consumer correctly -- it cited
+# the file, the line range, and the mapping that constructs the executor --
+# but never wrote the owning class's name, so a strict substring scorer read
+# a semantically complete answer as incomplete. The failure was in the output
+# contract, not in the Plan or the Evidence.
+#
+# v2 splits the answer into machine-readable canonical sections and a free
+# human narrative. RELATIONS and SOURCE LOCATIONS must spell out the
+# identifiers exactly as Evidence spells them, so scoring reads a section
+# whose wording is constrained; SUMMARY stays unconstrained so readability is
+# not paid for with precision. No ground-truth symbol is named here -- the
+# rule is "copy what Evidence calls it", which generalizes to any task.
+MAIN_FINAL_ANALYSIS_PROMPT_TEMPLATE_V2 = """\
+RepoScoutが収集した以下のEvidenceを使って、下記Investigation Brief
+記載の調査目的に沿って分析してください。あなたはMain Agent(Opus)
+です。Explorerとの会話履歴は持っていません。この
+Briefと生のRepoScout Evidenceだけが根拠です(要約は挟まれていません)。
+
+確認対象:
+{confirmation_points}
+
+実装はしないでください。
+
+OUTPUT CONTRACT(この5sectionをこの順序・この見出しで必ず出力すること):
+
+## FACTS
+Evidenceから直接読み取れる事実を列挙する。推測を混ぜない。
+
+## RELATIONS
+symbol / file 間の関係を1行1件で記述する。
+形式: <A> -> <B> : <関係の説明>
+定義・参照・呼び出し・依存・生成・注入などの関係を、
+Evidence上に現れるものはすべて記載する。
+
+## SOURCE LOCATIONS
+根拠の位置を1行1件で記述する。
+形式: <path>:<line> <symbol> — <何が確認できるか>
+
+## UNKNOWN
+Evidenceから判断できなかった点を列挙する。
+根拠のない推測で埋めない。
+
+## SUMMARY
+人間の読み手向けの自然文。ここは表現・構成とも自由で、
+言い換えや要約を用いてよい。
+
+RELATIONS と SOURCE LOCATIONS の記述規則:
+- Evidenceに現れるclass名 / 関数名 / 定数名 / ファイル名は、
+  Evidenceでの綴りのまま書くこと。
+- 「そのクラス」「呼び出し元」のような代名詞・役割語で
+  canonical名を置き換えないこと。役割を説明したい場合は、
+  canonical名を書いた上で補足すること。
+- 行番号やファイルパスだけでsymbolを指し示さず、symbol名も併記すること。
+- 省略記号(...)や「他」でsymbolの列挙を打ち切らないこと。
+
+--- BRIEF START ---
+{handoff}
+--- BRIEF END ---
+
+--- EVIDENCE START ---
+{evidence}
+--- EVIDENCE END ---
+"""
+
+# Canonical (machine-scored) sections of the v2 contract. SUMMARY is
+# deliberately excluded: it is the section allowed to paraphrase, so scoring
+# it would re-introduce the wording sensitivity v2 exists to remove.
+V2_CANONICAL_SECTIONS = ("FACTS", "RELATIONS", "SOURCE LOCATIONS")
+V2_ALL_SECTIONS = ("FACTS", "RELATIONS", "SOURCE LOCATIONS", "UNKNOWN", "SUMMARY")
