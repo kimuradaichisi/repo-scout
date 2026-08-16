@@ -3,10 +3,13 @@
 The two configs are meant to differ in exactly one thing: who writes the code.
 Everything else that could plausibly change how much work gets done -- above
 all how freely Main may reach for a shell -- is held identical, so Bash is the
-same allowlist on both sides and only Write/Edit and Agent/Task differ:
+same allowlist on both sides. Both CLIs grant Write/Edit (Step 0 found a
+subagent's usable tools are the intersection of the CLI grant and its own
+declaration, so denying Write/Edit on the CLI denies the Worker too); the
+actual difference is delegation and who the role gate lets write:
 
-    Config A   Write, Edit          delegation denied
-    Config B   delegation allowed   Write, Edit denied
+    Config A   delegation denied     role gate irrelevant, Main writes directly
+    Config B   delegation allowed    role gate denies Main's writes, allows the Worker's
 
 Bash is an allowlist rather than a blanket grant because a blanket grant would
 hand Config B's Main a write path (`sed -i`, `tee`, a heredoc, `python -c`)

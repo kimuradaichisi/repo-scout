@@ -109,3 +109,14 @@ def extract_pack_paths(pack_text: str) -> frozenset[str]:
     sections = split_sections(pack_text, IMPLEMENTATION_PACK_SECTIONS)
     scoped = " ".join(sections.get(name, "") for name in ("TARGET FILES", "RELEVANT EVIDENCE"))
     return frozenset(_PATH.findall(scoped))
+
+
+def extract_target_files(pack_text: str) -> frozenset[str]:
+    """Paths the Pack declared writable: TARGET FILES only.
+
+    Narrower than extract_pack_paths on purpose -- RELEVANT EVIDENCE is
+    reference material the Worker reads, not a file it is licensed to change,
+    so a write there is a scope violation even though a read there is not.
+    """
+    sections = split_sections(pack_text, IMPLEMENTATION_PACK_SECTIONS)
+    return frozenset(_PATH.findall(sections.get("TARGET FILES", "")))

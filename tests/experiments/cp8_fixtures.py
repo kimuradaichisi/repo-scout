@@ -89,6 +89,25 @@ def sync_snapshot_env(snapshot: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def read_if_exists(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def diff_against_fixture_commit(snapshot: Path) -> tuple[str, list[str]]:
+    """Unified diff and changed paths, relative to the committed fixture state."""
+    diff = subprocess.run(
+        ["git", "diff", "HEAD"], cwd=snapshot, text=True, capture_output=True, check=False
+    ).stdout
+    names = subprocess.run(
+        ["git", "diff", "--name-only", "HEAD"],
+        cwd=snapshot,
+        text=True,
+        capture_output=True,
+        check=False,
+    ).stdout
+    return diff, [line for line in names.splitlines() if line]
+
+
 def working_tree_status(snapshot: Path) -> str:
     completed = subprocess.run(
         ["git", "status", "--porcelain"],

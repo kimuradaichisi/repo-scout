@@ -152,6 +152,36 @@ def worker_metrics(events: list[dict[str, Any]], pack_paths: frozenset[str]) -> 
     )
 
 
+DENIAL_PHRASES = (
+    "was blocked",
+    "requires approval",
+    "permission",
+    "not allowed",
+    "may only",
+)
+
+
+def worker_permission_denial_count(events: list[dict[str, Any]]) -> int:
+    """Nested tool calls whose own result reads as a refusal.
+
+    The CLI's own permission_denials list (claude_metrics.py) is aggregated on
+    the run's top-level result with no parent_tool_use_id, so it cannot say
+    whether Main or the Worker hit the denial. A denied *nested* call, though,
+    still gets a tool_result on that call -- carrying the refusal text, which
+    is how the Worker learns about it at all -- so scanning nested results for
+    that text attributes the denial correctly. Heuristic (text-pattern based),
+    not a structured field Claude Code exposes.
+    """
+    results = tool_results(events)
+    nested = [call for call in tool_calls(events) if call.is_nested]
+    count = 0
+    for call in nested:
+        text = results.get(call.tool_use_id, "").lower()
+        if any(phrase in text for phrase in DENIAL_PHRASES):
+            count += 1
+    return count
+
+
 def delegation_observations(events: list[dict[str, Any]]) -> list[DelegationObservation]:
     """Every Agent / Task call Main made, and whether it overrode the model."""
     results = tool_results(events)
