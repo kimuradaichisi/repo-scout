@@ -25,8 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from cp8_diff import diff_against_fixture_commit
 from cp8_fixtures import (
-    diff_against_fixture_commit,
     inject_reposcout_bin,
     isolate_environment,
     read_if_exists,
