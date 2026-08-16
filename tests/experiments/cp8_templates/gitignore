@@ -1,0 +1,12 @@
+# Everything a CP8 run writes into the snapshot lands here, so that
+# `git status --porcelain` stays a true answer to "has the source changed",
+# which is what the pre_worker_diff_empty gate reads.
+.venv/
+.scout/
+.cp8/
+.reposcout/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
