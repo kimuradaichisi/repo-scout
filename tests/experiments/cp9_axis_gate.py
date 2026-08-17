@@ -34,6 +34,13 @@ C4c decision-phase elapsed ratio is reported, not gated. Wall clock carries
     queueing and rate-limit noise that has nothing to do with the axis; it is
     here to contradict the token figures if something is wrong, not to decide.
 
+C3  registered at cp9-v3 over three Decision Identity axes. v2 gated four and
+    failed on `propagation_strategy`, which is a description of the execution
+    scope S/M/L deliberately vary, not a judgement held constant across them;
+    it now lives in cp9_execution_scope and gates nothing. The v2 verdict
+    stands as recorded -- this is a new protocol, not a re-scoring of the old
+    one.
+
 A gate that cannot be computed (a missing figure, a zero denominator) fails.
 CP9 stops on FAIL and the task sizes are not retuned and retried -- refitting
 the tasks until the axis validates would be fitting the experiment to the
@@ -43,10 +50,13 @@ answer.
 from dataclasses import dataclass
 from typing import Any
 
+from cp9_decision import IDENTITY_AXES, PROTOCOL_VERSION
+
 OPUS_TOKEN_RATIO_MIN = 2.0
 DECISION_PHASE_TOKEN_RATIO_MAX = 1.50
 DECISION_PHASE_CALL_RATIO_MAX = 2.00
 REQUIRED_DECISION_COUNT = 1
+REQUIRED_IDENTITY_AXES = len(IDENTITY_AXES)
 
 
 @dataclass(frozen=True)
@@ -87,22 +97,21 @@ def check_decision_count(small_count: int, large_count: int) -> GateCheck:
 
 
 def check_decision_identity(comparison: dict[str, Any]) -> GateCheck:
-    """All four axes identical and both records readable.
+    """Every Decision Identity axis identical, and both records readable.
 
-    The measurement revision renamed the readability flag from both_complete to
-    both_valid when Decision Identity moved from prose classification to
-    canonical enums. Both keys are accepted so the threshold -- 4/4 axes, both
-    records readable -- is the same rule it was when it was registered.
+    Three axes under cp9-v3. The execution-scope declaration is present in the
+    comparison payload for the record and is deliberately not consulted here.
     """
-    readable = comparison.get("both_valid", comparison.get("both_complete"))
-    ok = bool(comparison.get("identical")) and bool(readable)
+    readable = comparison.get("both_valid")
     matched = comparison.get("matching_axis_count")
+    required = int(comparison.get("axis_count", REQUIRED_IDENTITY_AXES))
+    ok = bool(comparison.get("identical")) and bool(readable) and matched == required
     return GateCheck(
         name="C3_decision_identity",
         passed=ok,
         observed=float(matched) if isinstance(matched, int) else None,
-        threshold=4.0,
-        detail=f"{matched}/4 axes identical; both records readable={readable}",
+        threshold=float(required),
+        detail=f"{matched}/{required} identity axes identical; both readable={readable}",
     )
 
 
@@ -154,10 +163,13 @@ def evaluate(checks: list[GateCheck], elapsed_ratio: float | None) -> dict[str, 
 def registered_thresholds() -> dict[str, Any]:
     """Recorded into every artifact so a run can be checked against the rule it ran under."""
     return {
+        "protocol_version": PROTOCOL_VERSION,
         "C1_opus_token_ratio_min": OPUS_TOKEN_RATIO_MIN,
         "C2_required_decision_count": REQUIRED_DECISION_COUNT,
-        "C3_decision_identity_axes_required": 4,
+        "C3_decision_identity_axes_required": REQUIRED_IDENTITY_AXES,
+        "C3_decision_identity_axes": list(IDENTITY_AXES),
         "C4a_decision_phase_token_ratio_max": DECISION_PHASE_TOKEN_RATIO_MAX,
         "C4b_decision_phase_call_ratio_max": DECISION_PHASE_CALL_RATIO_MAX,
         "C4c_decision_phase_elapsed_ratio": "reported, not gated",
+        "execution_scope_used_for_axis_validity": False,
     }

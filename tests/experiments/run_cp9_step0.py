@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import cp9_step0_ab_checks as ab_checks
 import cp9_step0_decision_checks as decision_checks
 import cp9_step0_regression_checks as regression_checks
 import cp9_step0_scope_checks as scope_checks
@@ -23,7 +24,14 @@ import cp9_step0_telemetry_checks as telemetry_checks
 from cp9_axis_gate import registered_thresholds
 from cp9_tasks import TASKS
 
-CHECK_GROUPS = ("task_definition", "telemetry", "decision_and_gate", "regression", "scope")
+CHECK_GROUPS = (
+    "task_definition",
+    "telemetry",
+    "decision_and_gate",
+    "regression",
+    "scope",
+    "ab_stop_rule",
+)
 
 
 def _report(title: str, results: list[Any]) -> dict[str, Any]:
@@ -66,6 +74,7 @@ def _build_report(repo_root: Path, experiments: Path) -> dict[str, Any]:
         "decision_and_gate": _report("Decision Identity / Axis Gate", decision_checks.run_all()),
         "regression": _report("Regression measurement", regression_checks.run_all()),
         "scope": _report("Scope measurement", scope_checks.run_all()),
+        "ab_stop_rule": _report("A/B stop rule", ab_checks.run_all()),
     }
     report["all_passed"] = all(report[name]["all_passed"] for name in CHECK_GROUPS)
     return report

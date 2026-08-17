@@ -34,7 +34,8 @@ from cp9_axis_gate import (
     registered_thresholds,
 )
 from cp9_config import CONFIG_A
-from cp9_decision import compare, parse_decision_record, record_summary
+from cp9_decision import PROTOCOL_VERSION, compare, parse_decision_record, record_summary
+from cp9_execution_scope import execution_scope, scope_differences
 from cp9_gates import gate_summary, regression_report, run_gates
 from cp9_runtime import RunPaths, check_locked_hashes, run_main
 from cp9_scope import scope_report
@@ -110,6 +111,7 @@ def _report(
         "delegation_records": delegation_records(execution["events"]),
         "permission_denials": denial_counts(execution["events"]),
         "decision_record": decision["decision_record"],
+        "execution_scope": execution_scope(task, decision["_record"]),
         "phase_telemetry": decision["phase_telemetry"],
         "_internal": decision,
     }
@@ -180,25 +182,39 @@ def main() -> int:
 
     print("=== CP9 Step 0.5 — Config A only, S and L ===")
     reports = {size: _run_one(size, repo_root, snapshot_root, run_dir) for size in SIZES}
+    payload = _build_payload(reports)
+    gate = payload["axis_validity_gate"]
+    _write(run_dir, payload)
+    print(f"\nJSON: {run_dir / 'cp9-step05-results.json'}")
+    print(f"axis_valid: {gate['axis_valid'] if gate else 'ABORTED'}")
+    return 0
+
+
+def _write(run_dir: Path, payload: dict[str, Any]) -> None:
+    (run_dir / "cp9-step05-results.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _build_payload(reports: dict[str, Any]) -> dict[str, Any]:
     aborted = [size for size, report in reports.items() if report.get("aborted")]
     gate = None if aborted else _axis_gate(reports["S"], reports["L"])
     for report in reports.values():
         report.pop("_internal", None)
-
-    payload = {
+    return {
         "variant": "cp9-step05",
+        "protocol_version": PROTOCOL_VERSION,
         "phase": "axis-validity",
         "registered_thresholds": registered_thresholds(),
         "runs": reports,
+        "execution_scope_comparison": (
+            None
+            if aborted
+            else scope_differences(reports["S"]["execution_scope"], reports["L"]["execution_scope"])
+        ),
         "axis_validity_gate": gate,
         "aborted_sizes": aborted,
     }
-    (run_dir / "cp9-step05-results.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(f"\nJSON: {run_dir / 'cp9-step05-results.json'}")
-    print(f"axis_valid: {gate['axis_valid'] if gate else 'ABORTED'}")
-    return 0
 
 
 if __name__ == "__main__":

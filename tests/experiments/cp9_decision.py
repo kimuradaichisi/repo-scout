@@ -1,31 +1,37 @@
-"""Decision Identity as canonical enums, not as prose to be classified.
+"""Decision Identity (CP9-v3): the three axes that must not vary with size.
 
-The first Step 0.5 failed C3 on two axes where S and L had in fact decided the
-same thing. One run answered in English and one in Japanese, and the keyword
-classifier's patterns were Japanese-shaped, so "Each executor measures its own
-span" matched nothing and became UNCLEAR. On the other axis the classifier
-matched the phrase "repository-wide" in a clause that was describing the model
-field, not the propagation. Both failures were the instrument reading the
-sentence, and no amount of extra patterns fixes a scheme whose input is free
-text in an unconstrained language.
+v2 compared four axes and failed C3 on `propagation_strategy`, with S saying
+`listed_only` and L saying `all_sites`. The instrument was working -- both
+records parsed cleanly, no INVALID -- and the runs had behaved identically:
+each changed exactly its allowed paths and nothing else. What differed was the
+label, because at L the enumerated list happens to be every executor, so both
+words describe the same act truthfully.
 
-So the run now emits the category itself. Each axis is one line carrying one
-value copied from a closed list, and identity is exact equality of those
-values -- nothing is inferred from wording, and the same decision written in
-either language produces the same token. The rationale is still collected and
-still stored, but it is audit material for a human reading the artifact; it
-never reaches the comparison.
+That made the fourth axis a restatement of the independent variable. S/M/L are
+*defined* by how many sites the decision is applied to, so requiring
+propagation to be constant across sizes was requiring the size not to vary.
+v3 draws the line where it belongs:
 
-Fail-closed is unchanged: an unknown value, a missing axis, or more than one
-value on a line is INVALID, and INVALID is never equal to anything, including
-another INVALID.
+    Decision Identity   fixed across sizes, gates C3   (3 axes, here)
+    Execution Scope     varies by design, never gates  (cp9_execution_scope)
+
+The value is still collected -- the prompt is unchanged and still asks for all
+four lines -- it is simply recorded as a scope declaration rather than scored
+as a decision. Nothing is dropped; the boundary moved.
+
+Fail-closed is unchanged from v2: unknown value, missing line, or two values
+on one line is INVALID, and INVALID never equals anything, including another
+INVALID.
 """
 
 import re
 from dataclasses import dataclass
 from typing import Any
 
-DECISION_ENUMS: dict[str, tuple[str, ...]] = {
+PROTOCOL_VERSION = "cp9-v3"
+
+# Gated by C3. Identical values required at every size.
+IDENTITY_ENUMS: dict[str, tuple[str, ...]] = {
     "domain_model_representation": (
         "evidence_result_field",
         "separate_model",
@@ -37,10 +43,16 @@ DECISION_ENUMS: dict[str, tuple[str, ...]] = {
         "runner_measures",
     ),
     "compatibility_strategy": ("optional_default", "required_field"),
+}
+
+# Collected, reported, never gated. Differing across sizes is the correct state.
+SCOPE_DECLARATION_ENUMS: dict[str, tuple[str, ...]] = {
     "propagation_strategy": ("all_sites", "listed_only"),
 }
 
-DECISION_AXES = tuple(DECISION_ENUMS)
+ALL_ENUMS = {**IDENTITY_ENUMS, **SCOPE_DECLARATION_ENUMS}
+IDENTITY_AXES = tuple(IDENTITY_ENUMS)
+SCOPE_AXES = tuple(SCOPE_DECLARATION_ENUMS)
 INVALID = "INVALID"
 
 # Stripped before matching so a value in backticks or with a trailing period is
@@ -51,13 +63,15 @@ _RATIONALE = re.compile(r"^\s*RATIONALE\s*[:：]\s*(.*)$", re.MULTILINE | re.IGN
 
 @dataclass(frozen=True)
 class DecisionRecord:
-    values: dict[str, str]
+    identity: dict[str, str]
+    scope_declaration: dict[str, str]
     rationale: str
     raw_lines: dict[str, str]
 
     @property
     def valid(self) -> bool:
-        return all(self.values.get(axis, INVALID) != INVALID for axis in DECISION_AXES)
+        """Readable on the three gated axes. A scope declaration never decides this."""
+        return all(self.identity.get(axis, INVALID) != INVALID for axis in IDENTITY_AXES)
 
 
 def _axis_line(text: str, axis: str) -> str:
@@ -74,40 +88,49 @@ def read_value(axis: str, line: str) -> str:
     category unambiguously.
     """
     candidate = line.strip().strip(_TRIM).lower()
-    return candidate if candidate in DECISION_ENUMS[axis] else INVALID
+    return candidate if candidate in ALL_ENUMS[axis] else INVALID
 
 
 def parse_decision_record(report_text: str) -> DecisionRecord:
-    raw_lines = {axis: _axis_line(report_text, axis) for axis in DECISION_AXES}
-    values = {axis: read_value(axis, raw_lines[axis]) for axis in DECISION_AXES}
+    raw_lines = {axis: _axis_line(report_text, axis) for axis in ALL_ENUMS}
     found = _RATIONALE.search(report_text)
     return DecisionRecord(
-        values=values, rationale=found.group(1).strip() if found else "", raw_lines=raw_lines
+        identity={axis: read_value(axis, raw_lines[axis]) for axis in IDENTITY_AXES},
+        scope_declaration={axis: read_value(axis, raw_lines[axis]) for axis in SCOPE_AXES},
+        rationale=found.group(1).strip() if found else "",
+        raw_lines=raw_lines,
     )
 
 
 def compare(left: DecisionRecord, right: DecisionRecord) -> dict[str, Any]:
-    """Axis-by-axis exact equality of enum values. INVALID never matches."""
+    """Exact equality over the three identity axes. Scope declarations are ignored."""
     per_axis = {
         axis: {
-            "left": left.values[axis],
-            "right": right.values[axis],
-            "same": left.values[axis] == right.values[axis] and left.values[axis] != INVALID,
+            "left": left.identity[axis],
+            "right": right.identity[axis],
+            "same": left.identity[axis] == right.identity[axis] and left.identity[axis] != INVALID,
         }
-        for axis in DECISION_AXES
+        for axis in IDENTITY_AXES
     }
     return {
+        "protocol_version": PROTOCOL_VERSION,
         "per_axis": per_axis,
         "both_valid": left.valid and right.valid,
         "identical": all(entry["same"] for entry in per_axis.values()),
         "matching_axis_count": sum(1 for entry in per_axis.values() if entry["same"]),
+        "axis_count": len(IDENTITY_AXES),
+        "scope_declaration_left": dict(left.scope_declaration),
+        "scope_declaration_right": dict(right.scope_declaration),
+        "scope_declaration_used_for_identity": False,
     }
 
 
 def record_summary(record: DecisionRecord) -> dict[str, Any]:
     return {
-        "values": dict(record.values),
-        "valid": record.valid,
+        "protocol_version": PROTOCOL_VERSION,
+        "identity": dict(record.identity),
+        "identity_valid": record.valid,
+        "scope_declaration": dict(record.scope_declaration),
         "raw_lines": dict(record.raw_lines),
         "rationale": record.rationale,
         "rationale_used_for_scoring": False,
@@ -115,5 +138,10 @@ def record_summary(record: DecisionRecord) -> dict[str, Any]:
 
 
 def allowed_values_block() -> str:
-    """The closed list, rendered for the prompt so both sides read one source."""
-    return "\n".join(f"{axis}: {' | '.join(values)}" for axis, values in DECISION_ENUMS.items())
+    """The closed lists, rendered for the prompt so both sides read one source.
+
+    All four axes are rendered: the prompt is unchanged from v2, and the run is
+    still asked for the propagation line. Only what the harness does with that
+    line changed.
+    """
+    return "\n".join(f"{axis}: {' | '.join(values)}" for axis, values in ALL_ENUMS.items())

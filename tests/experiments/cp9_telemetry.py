@@ -204,3 +204,18 @@ def observed_models(events: list[dict[str, Any]]) -> list[str]:
 def main_phase_boundary_tools(is_delegating: bool) -> frozenset[str]:
     """Where Main stops deciding: its first hand-off, or its first own edit."""
     return DELEGATION_TOOLS if is_delegating else WRITE_TOOLS
+
+
+def main_write_calls(events: list[dict[str, Any]]) -> int:
+    """Write/Edit calls Main issued itself, counted from its own (non-nested) turns.
+
+    Distinct from the role gate's denial count: the gate records attempts it
+    refused, this records calls Main made. Under Config B both should be zero
+    for different reasons, and a disagreement between them is worth seeing.
+    """
+    return sum(
+        1
+        for row in main_assistant_requests(events)
+        for name in tool_use_names(row)
+        if name in WRITE_TOOLS
+    )
