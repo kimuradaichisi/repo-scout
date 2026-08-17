@@ -90,6 +90,17 @@ def check_forbidden_paths(repo_root: Path) -> CheckResult:
     )
 
 
+def check_allowed_paths_equal_targets() -> CheckResult:
+    """The scope allowlist is the target list; neither may drift from the other."""
+    mismatched = [
+        task["size"] for task in TASKS if list(task["targets"]) != list(task["allowed_paths"])
+    ]
+    counts = {task["size"]: len(task["allowed_paths"]) for task in TASKS}
+    return CheckResult(
+        "allowed_paths_equal_targets", not mismatched, f"counts={counts} mismatched={mismatched}"
+    )
+
+
 def check_scope_disjoint() -> CheckResult:
     overlaps = [
         f"{task['size']}:{path}"
@@ -123,6 +134,7 @@ def run_all(repo_root: Path) -> list[CheckResult]:
         check_expected_matches_targets(),
         check_target_paths(repo_root),
         check_forbidden_paths(repo_root),
+        check_allowed_paths_equal_targets(),
         check_scope_disjoint(),
         check_criteria_separation(),
     ]

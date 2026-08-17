@@ -1,11 +1,16 @@
-"""Fixture checks for Decision Identity and the Axis Validity Gate. No model calls.
+"""Fixture checks for canonical Decision Identity. No model calls.
 
-Both mechanisms decide whether a CP9 point is usable, so both have to be shown
-to fail when they should. The cases that matter here are the negative ones: a
-record missing an axis, a sentence that could be read two ways, and two
-unreadable records being compared to each other. The last is the trap -- two
-UNCLEAR values are equal as strings, and treating that as agreement would let
-CP9 certify "same decision" precisely when it could not read either decision.
+The first Step 0.5 failed C3 because a keyword classifier read two identically
+decided runs as different: one answered in English, and one sentence's
+"repository-wide" belonged to a clause about the model field rather than about
+propagation. Case 5 is the direct regression test for that -- the same enum
+values with rationales in different languages must compare equal, because the
+rationale never reaches the comparison at all.
+
+The negative cases matter as much. Unknown values, missing lines and two
+values on one line are all INVALID, and INVALID is never equal to anything,
+including another INVALID: certifying "same decision" from two records the
+harness could not read is the failure this design exists to prevent.
 """
 
 from dataclasses import dataclass
@@ -19,33 +24,49 @@ from cp9_axis_gate import (
     evaluate,
     registered_thresholds,
 )
-from cp9_decision import UNCLEAR, compare, parse_decision_record
+from cp9_decision import INVALID, compare, parse_decision_record
 
-WELL_FORMED = """\
+CANONICAL = """\
 ## DECISION RECORD
-DOMAIN MODEL REPRESENTATION: EvidenceResult に duration_ms フィールドを追加する
-MEASUREMENT RESPONSIBILITY: 各 executor が自分で計測する
-COMPATIBILITY STRATEGY: 省略可能フィールドとし既定値を持たせる
-PROPAGATION STRATEGY: 列挙された対象のみに適用し、残りは後続作業とする
+domain_model_representation: evidence_result_field
+measurement_responsibility: executor_measures
+compatibility_strategy: optional_default
+propagation_strategy: listed_only
 
-## DECISIONS
-理由をここに書く。
+RATIONALE:
+An optional field on EvidenceResult keeps every existing construction site
+working, and each executor times its own execute() span.
 """
 
-MISSING_AXIS = """\
+SAME_ENUMS_JAPANESE_RATIONALE = """\
 ## DECISION RECORD
-DOMAIN MODEL REPRESENTATION: EvidenceResult に duration_ms フィールドを追加する
-MEASUREMENT RESPONSIBILITY: 各 executor が自分で計測する
-COMPATIBILITY STRATEGY: 省略可能フィールドとし既定値を持たせる
+domain_model_representation: evidence_result_field
+measurement_responsibility: executor_measures
+compatibility_strategy: optional_default
+propagation_strategy: listed_only
+
+RATIONALE:
+EvidenceResult に省略可能フィールドを足し、各 executor が自分で計測する。
+既存の構築箇所は既定値 None のまま動作する。
 """
 
-AMBIGUOUS = WELL_FORMED.replace(
-    "EvidenceResult に duration_ms フィールドを追加する",
-    "EvidenceResult ではなく別のモデルを作る",
+ONE_AXIS_DIFFERENT = CANONICAL.replace(
+    "measurement_responsibility: executor_measures",
+    "measurement_responsibility: common_helper",
 )
 
-DIFFERENT = WELL_FORMED.replace("各 executor が自分で計測する", "run_command が計測する").replace(
-    "列挙された対象のみに適用し、残りは後続作業とする", "全 executor に一律で適用する"
+INVALID_ENUM = CANONICAL.replace(
+    "compatibility_strategy: optional_default",
+    "compatibility_strategy: optional_with_default",
+)
+
+TWO_VALUES = CANONICAL.replace(
+    "propagation_strategy: listed_only",
+    "propagation_strategy: listed_only, all_sites",
+)
+
+MISSING_AXIS = "\n".join(
+    line for line in CANONICAL.splitlines() if not line.startswith("propagation_strategy")
 )
 
 
@@ -56,52 +77,60 @@ class CheckResult:
     detail: str
 
 
-def check_parses_four_axes() -> CheckResult:
-    record = parse_decision_record(WELL_FORMED)
-    ok = record.complete and record.readable
-    return CheckResult("decision_record_parses_four_axes", ok, f"{record.categories}")
+def check_1_canonical_identical() -> CheckResult:
+    result = compare(parse_decision_record(CANONICAL), parse_decision_record(CANONICAL))
+    ok = result["identical"] and result["both_valid"]
+    return CheckResult("1_canonical_identical_passes", ok, f"{result['matching_axis_count']}/4")
 
 
-def check_missing_axis_incomplete() -> CheckResult:
+def check_2_one_axis_differs() -> CheckResult:
+    result = compare(parse_decision_record(CANONICAL), parse_decision_record(ONE_AXIS_DIFFERENT))
+    ok = not result["identical"] and result["matching_axis_count"] == 3
+    return CheckResult("2_one_axis_differs_fails", ok, f"{result['matching_axis_count']}/4")
+
+
+def check_3_invalid_enum() -> CheckResult:
+    record = parse_decision_record(INVALID_ENUM)
+    result = compare(parse_decision_record(CANONICAL), record)
+    ok = record.values["compatibility_strategy"] == INVALID and not result["identical"]
+    return CheckResult(
+        "3_unknown_enum_is_invalid", ok, f"value={record.values['compatibility_strategy']}"
+    )
+
+
+def check_3b_two_values() -> CheckResult:
+    record = parse_decision_record(TWO_VALUES)
+    ok = record.values["propagation_strategy"] == INVALID and not record.valid
+    return CheckResult(
+        "3b_two_values_on_one_line_is_invalid", ok, f"value={record.values['propagation_strategy']}"
+    )
+
+
+def check_4_missing_axis() -> CheckResult:
     record = parse_decision_record(MISSING_AXIS)
+    result = compare(parse_decision_record(CANONICAL), record)
+    ok = record.values["propagation_strategy"] == INVALID and not result["identical"]
+    return CheckResult("4_missing_axis_is_invalid", ok, f"valid={record.valid}")
+
+
+def check_4b_invalid_never_matches_invalid() -> CheckResult:
+    left = parse_decision_record(MISSING_AXIS)
+    result = compare(left, parse_decision_record(MISSING_AXIS))
+    axis = result["per_axis"]["propagation_strategy"]
+    return CheckResult("4b_invalid_never_matches_invalid", not axis["same"], f"same={axis['same']}")
+
+
+def check_5_rationale_language_ignored() -> CheckResult:
+    left = parse_decision_record(CANONICAL)
+    right = parse_decision_record(SAME_ENUMS_JAPANESE_RATIONALE)
+    ok = compare(left, right)["identical"] and left.rationale != right.rationale
     return CheckResult(
-        "missing_axis_is_incomplete", not record.complete, f"complete={record.complete}"
-    )
-
-
-def check_ambiguous_is_unclear() -> CheckResult:
-    record = parse_decision_record(AMBIGUOUS)
-    value = record.categories["domain_model_representation"]
-    return CheckResult("ambiguous_sentence_is_unclear", value == UNCLEAR, f"category={value}")
-
-
-def check_identical_records_match() -> CheckResult:
-    result = compare(parse_decision_record(WELL_FORMED), parse_decision_record(WELL_FORMED))
-    return CheckResult(
-        "identical_records_compare_identical",
-        bool(result["identical"]),
-        f"matching_axes={result['matching_axis_count']}",
-    )
-
-
-def check_different_records_differ() -> CheckResult:
-    result = compare(parse_decision_record(WELL_FORMED), parse_decision_record(DIFFERENT))
-    ok = not result["identical"] and result["matching_axis_count"] == 2
-    return CheckResult(
-        "different_records_compare_different", ok, f"matching_axes={result['matching_axis_count']}"
-    )
-
-
-def check_unclear_never_matches() -> CheckResult:
-    result = compare(parse_decision_record(AMBIGUOUS), parse_decision_record(AMBIGUOUS))
-    axis = result["per_axis"]["domain_model_representation"]
-    return CheckResult(
-        "unclear_does_not_count_as_agreement", not axis["same"], f"same={axis['same']}"
+        "5_rationale_language_does_not_affect_verdict", ok, "different rationale, same enums"
     )
 
 
 def _gate(opus: tuple[int, int], tokens: tuple[int, int], calls: tuple[int, int]) -> dict:
-    identity = compare(parse_decision_record(WELL_FORMED), parse_decision_record(WELL_FORMED))
+    identity = compare(parse_decision_record(CANONICAL), parse_decision_record(CANONICAL))
     checks = [
         check_opus_growth(*opus),
         check_decision_count(1, 1),
@@ -140,25 +169,28 @@ def check_gate_fails_on_zero_denominator() -> CheckResult:
     )
 
 
-def check_thresholds_recorded() -> CheckResult:
+def check_thresholds_unchanged() -> CheckResult:
     thresholds = registered_thresholds()
-    ok = thresholds["C1_opus_token_ratio_min"] == 2.0 and (
-        thresholds["C4a_decision_phase_token_ratio_max"] == 1.50
+    ok = (
+        thresholds["C1_opus_token_ratio_min"] == 2.0
+        and thresholds["C4a_decision_phase_token_ratio_max"] == 1.50
+        and thresholds["C4b_decision_phase_call_ratio_max"] == 2.00
     )
-    return CheckResult("thresholds_pre_registered", ok, f"{thresholds}")
+    return CheckResult("thresholds_unchanged_by_revision", ok, f"{thresholds}")
 
 
 def run_all() -> list[CheckResult]:
     return [
-        check_parses_four_axes(),
-        check_missing_axis_incomplete(),
-        check_ambiguous_is_unclear(),
-        check_identical_records_match(),
-        check_different_records_differ(),
-        check_unclear_never_matches(),
+        check_1_canonical_identical(),
+        check_2_one_axis_differs(),
+        check_3_invalid_enum(),
+        check_3b_two_values(),
+        check_4_missing_axis(),
+        check_4b_invalid_never_matches_invalid(),
+        check_5_rationale_language_ignored(),
         check_gate_passes_when_axis_moves(),
         check_gate_fails_on_flat_axis(),
         check_gate_fails_on_growing_decision_phase(),
         check_gate_fails_on_zero_denominator(),
-        check_thresholds_recorded(),
+        check_thresholds_unchanged(),
     ]

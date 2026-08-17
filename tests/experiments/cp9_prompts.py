@@ -16,6 +16,7 @@ four lines.
 from typing import Any
 
 from cp8_packs import IMPLEMENTATION_PACK_TEMPLATE
+from cp9_decision import allowed_values_block
 from cp9_tasks import render_acceptance_criteria, render_goal
 
 MAIN_REPORT_SECTIONS = (
@@ -37,15 +38,33 @@ QUALITY_GATE_COMMANDS = (
 
 _GATE_LIST = "\n".join(f"    {cmd}" for cmd in QUALITY_GATE_COMMANDS)
 
-DECISION_RECORD_BLOCK = """\
+DECISION_RECORD_BLOCK = f"""\
 ## DECISION RECORD
-Exactly these four lines, each one sentence, each naming what you chose:
+Exactly these four lines. Each value must be copied verbatim from the list \
+below — one value per line, nothing else on the line, no prose, no \
+parentheses, no explanation. The allowed values are:
 
-DOMAIN MODEL REPRESENTATION: <where the duration lives in the domain model>
-MEASUREMENT RESPONSIBILITY: <which component measures it>
-COMPATIBILITY STRATEGY: <how existing construction sites stay working>
-PROPAGATION STRATEGY: <how far you applied it, and what you deliberately left>
+{allowed_values_block()}
+
+Write them as:
+
+domain_model_representation: <value>
+measurement_responsibility: <value>
+compatibility_strategy: <value>
+propagation_strategy: <value>
+
+RATIONALE:
+Free text, any language: why you chose those four values, and what you \
+rejected. Write as much as you need here — this section is read by people, \
+not matched by the harness.
 """
+
+SCRATCH_POLICY = """\
+Do not create scratch, temporary, helper or smoke-test files inside the \
+repository. If you need one, write it under /tmp with an absolute path. Any \
+file left in the repository that is not one of this task's declared targets \
+counts as a scope violation, including a file you emptied but could not \
+delete."""
 
 CONFIG_A_PROMPT = """\
 You are implementing a change to this repository end to end. There is no \
@@ -67,6 +86,8 @@ written, and report their real output:
 {gates}
 Never report a gate you did not run, and never report green for one that \
 failed.
+
+{scratch_policy}
 
 Finish with a report in exactly this format and nothing else:
 
@@ -124,6 +145,9 @@ criterion unmet, or a BLOCKED item you can now resolve — you may send ONE \
 corrective Implementation Pack to a fresh sonnet-worker invocation. Not more \
 than one: after a second attempt, accept the outcome and report the \
 shortfall rather than trying again.
+
+{scratch_policy}
+
 6. Finish with a report in exactly this format and nothing else:
 
 {decision_record}
@@ -154,6 +178,7 @@ def render_config_a_prompt(task: dict[str, Any]) -> str:
         criteria=render_acceptance_criteria(task),
         gates=_GATE_LIST,
         decision_record=DECISION_RECORD_BLOCK,
+        scratch_policy=SCRATCH_POLICY,
     )
 
 
@@ -164,4 +189,5 @@ def render_config_b_prompt(task: dict[str, Any]) -> str:
         pack_template=IMPLEMENTATION_PACK_TEMPLATE,
         gates=_GATE_LIST,
         decision_record=DECISION_RECORD_BLOCK,
+        scratch_policy=SCRATCH_POLICY,
     )

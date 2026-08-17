@@ -21,7 +21,6 @@ from typing import Any
 
 from cp8_diff import diff_against_fixture_commit
 from cp8_fixtures import inject_reposcout_bin, isolate_environment
-from cp8_step1_gates import gate_summary, regression_count, run_gates
 from cp8_step1_metrics import model_usage_breakdown, run_call_metrics, safety_metrics
 from cp8_step1_runtime import clear_hook_logs, setup_snapshot
 from cp8_transcript import load_events
@@ -36,8 +35,10 @@ from cp9_axis_gate import (
 )
 from cp9_config import CONFIG_A
 from cp9_decision import compare, parse_decision_record, record_summary
+from cp9_gates import gate_summary, regression_report, run_gates
 from cp9_runtime import RunPaths, check_locked_hashes, run_main
-from cp9_tasks import get_size, scope_violations
+from cp9_scope import scope_report
+from cp9_tasks import get_size
 from cp9_telemetry import (
     DECISION_PHASE,
     IMPLEMENTATION_PHASE,
@@ -52,19 +53,22 @@ SIZES = ("S", "L")
 
 
 def _execute(task: dict[str, Any], paths: RunPaths, repo_root: Path) -> dict[str, Any]:
-    before = run_gates(paths.snapshot)
+    """Baseline gates, the run, then post-change gates. JUnit XML stays out of the snapshot."""
+    before = run_gates(paths.snapshot, paths.run_dir / f"{paths.label}-junit-baseline.xml")
     clear_hook_logs(paths.snapshot)
     run, transcript = run_main(CONFIG_A.render_prompt(task), CONFIG_A, paths)
     events = load_events(transcript)
     diff_text, changed_paths = diff_against_fixture_commit(paths.snapshot)
-    after = run_gates(paths.snapshot)
+    after = run_gates(paths.snapshot, paths.run_dir / f"{paths.label}-junit-post.xml")
     return {
         "run": run,
         "events": events,
         "transcript": transcript,
         "changed_paths": changed_paths,
         "diff_chars": len(diff_text),
-        "quality": gate_summary(after) | {"regression_count": regression_count(before, after)},
+        "quality": gate_summary(after),
+        "regression": regression_report(before.outcomes, after.outcomes),
+        "scope": scope_report(changed_paths, task),
         "safety": safety_metrics(transcript, repo_root),
     }
 
@@ -95,9 +99,10 @@ def _report(
         "decision_count": task["decision_count"],
         "fixed_condition_hashes": hashes,
         "quality": execution["quality"],
+        "regression": execution["regression"],
+        "scope": execution["scope"],
         "changed_paths": execution["changed_paths"],
         "diff_chars": execution["diff_chars"],
-        "scope_violations": scope_violations(execution["changed_paths"], task),
         "model_usage": usage,
         "main_call": run_call_metrics(execution["run"]),
         "safety": execution["safety"],

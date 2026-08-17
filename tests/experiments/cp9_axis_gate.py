@@ -87,14 +87,22 @@ def check_decision_count(small_count: int, large_count: int) -> GateCheck:
 
 
 def check_decision_identity(comparison: dict[str, Any]) -> GateCheck:
-    ok = bool(comparison.get("identical")) and bool(comparison.get("both_complete"))
+    """All four axes identical and both records readable.
+
+    The measurement revision renamed the readability flag from both_complete to
+    both_valid when Decision Identity moved from prose classification to
+    canonical enums. Both keys are accepted so the threshold -- 4/4 axes, both
+    records readable -- is the same rule it was when it was registered.
+    """
+    readable = comparison.get("both_valid", comparison.get("both_complete"))
+    ok = bool(comparison.get("identical")) and bool(readable)
     matched = comparison.get("matching_axis_count")
     return GateCheck(
         name="C3_decision_identity",
         passed=ok,
         observed=float(matched) if isinstance(matched, int) else None,
         threshold=4.0,
-        detail=f"{matched}/4 axes identical; both_complete={comparison.get('both_complete')}",
+        detail=f"{matched}/4 axes identical; both records readable={readable}",
     )
 
 

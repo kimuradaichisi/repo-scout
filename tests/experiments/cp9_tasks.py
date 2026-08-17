@@ -12,10 +12,13 @@ particular the volume vector (V1..V5) is declared here, never derived from
 what a model happened to produce: deriving size from changed LoC after the
 fact would let the axis be redrawn around the result.
 
-`forbidden_paths` is a prefix list and does double duty in CP9. It is the
-usual scope check, and it is also the guard on the volume axis: a Small run
-that "helpfully" converts every executor has silently become a Large run, and
-that has to be visible as a violation rather than absorbed.
+Scope is measured against `allowed_paths`, not `forbidden_paths`. A forbidden
+prefix list shrinks as the task grows -- six prefixes at S, two at L -- so it
+carried most of its power where the least work happened and almost none where
+the most did, and CP9 compares across sizes. An allowlist means the same thing
+at every size: a Small run that "helpfully" converts every executor, and a run
+that leaves a scratch file behind, are both visible as the same kind of
+violation. `forbidden_paths` is kept, reported, and no longer primary.
 """
 
 from typing import Any
@@ -207,6 +210,17 @@ TASKS: list[dict[str, Any]] = [
         ),
     },
 ]
+
+
+# The primary scope metric is changed_paths - allowed_paths, and allowed_paths
+# is exactly the declared targets: a task's targets are the complete list of
+# repository files it is entitled to leave changed. Fixed at import, before any
+# run, and asserted against `targets` by the Step 0 checks so the two cannot
+# drift apart. forbidden_paths is kept as a secondary, reported-only signal --
+# it was the first Step 0.5's primary metric and lost almost all of its power
+# at L, where only two prefixes are out of scope.
+for _task in TASKS:
+    _task["allowed_paths"] = list(_task["targets"])
 
 
 def get_task(key: str) -> dict[str, Any]:

@@ -27,6 +27,8 @@ CP9_DEFINITION_FILES = {
     "cp9_decision": "cp9_decision.py",
     "cp9_axis_gate": "cp9_axis_gate.py",
     "cp9_telemetry": "cp9_telemetry.py",
+    "cp9_gates": "cp9_gates.py",
+    "cp9_scope": "cp9_scope.py",
 }
 
 LOCKED_HASHES_PATH = "results/cp9-fixed-infrastructure/locked-hashes.json"
