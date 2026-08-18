@@ -15,6 +15,12 @@ from reposcout.ornith.client import OrnithWorker
 
 
 class QueryRunner:
+    """Dispatches to a deterministic executor, or to Ornith when explicitly
+    asked (tool="ornith"). It never picks Ornith on RepoScout's own judgment:
+    a query with no tool, or one naming a tool RepoScout has no executor for,
+    comes back UNRESOLVED rather than being guessed at semantically.
+    """
+
     def __init__(self, ornith_worker: OrnithWorker | None = None) -> None:
         self._ornith = ornith_worker or OrnithWorker()
         self._executors: dict[QueryTool, QueryExecutor] = {
@@ -28,12 +34,25 @@ class QueryRunner:
         root: Path,
         query: InvestigationQuery,
     ) -> EvidenceResult:
-        tool = query.tool
-        if tool is not None and tool in self._executors:
-            executor = self._executors[tool]
-            return executor.execute(root, query)
+        if query.tool == QueryTool.ORNITH:
+            return self._ornith.execute(root, query)
 
-        return self._ornith.execute(root, query)
+        if query.tool in self._executors:
+            return self._executors[query.tool].execute(root, query)
+
+        return self._unresolved(query)
+
+    def _unresolved(self, query: InvestigationQuery) -> EvidenceResult:
+        return EvidenceResult(
+            query_id=query.id,
+            status="UNRESOLVED",
+            executor="none",
+            error=(
+                "no deterministic tool specified; RepoScout does not choose a "
+                'semantic explorer on its own -- set tool="ornith" explicitly '
+                "to opt into LLM exploration"
+            ),
+        )
 
 
 class InvestigationRunner:

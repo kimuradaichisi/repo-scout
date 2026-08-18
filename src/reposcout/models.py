@@ -72,7 +72,7 @@ class InvestigationContract(BaseModel):
 
 class EvidenceResult(BaseModel):
     query_id: str
-    status: Literal["PASS", "ERROR"]
+    status: Literal["PASS", "ERROR", "UNRESOLVED"]
     executor: str
     evidence: str = ""
     error: str | None = None
