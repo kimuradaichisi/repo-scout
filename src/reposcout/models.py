@@ -44,6 +44,17 @@ class InvestigationPlan(BaseModel):
     queries: list[InvestigationQuery] = Field(min_length=1)
 
 
+class TargetHint(BaseModel):
+    """A caller-typed starting point for exploration -- not a verified fact.
+
+    kind is chosen by the caller. RepoScout does not infer path/symbol-ness
+    from the text of value.
+    """
+
+    kind: Literal["path", "symbol", "literal"]
+    value: str = Field(min_length=1)
+
+
 class InvestigationContract(BaseModel):
     """What the caller wants investigated -- not what was found.
 
@@ -54,7 +65,7 @@ class InvestigationContract(BaseModel):
     goal: str = Field(min_length=1)
     questions: list[str] = Field(min_length=1)
     known_facts: list[str] = Field(default_factory=list)
-    target_hints: list[str] = Field(default_factory=list)
+    target_hints: list[TargetHint] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     stop_conditions: list[str] = Field(min_length=1)
 
@@ -65,6 +76,47 @@ class EvidenceResult(BaseModel):
     executor: str
     evidence: str = ""
     error: str | None = None
+
+
+class SourceRange(BaseModel):
+    """A requested source excerpt. 1-origin, inclusive on both ends."""
+
+    path: str = Field(min_length=1)
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "SourceRange":
+        if self.end_line < self.start_line:
+            raise ValueError("end_line must be >= start_line")
+        return self
+
+
+class PackedSource(BaseModel):
+    path: str
+    start_line: int
+    end_line: int
+    content: str
+    sha256: str
+
+
+class PackMetrics(BaseModel):
+    requested_ranges: int
+    packed_ranges: int
+    requested_source_bytes: int
+    packed_source_bytes: int
+    duplicate_or_overlap_bytes_eliminated: int
+    unique_paths: int
+    pack_chars: int
+
+
+class EvidencePack(BaseModel):
+    sources: list[PackedSource]
+    metrics: PackMetrics
+
+
+class PackRequest(BaseModel):
+    ranges: list[SourceRange] = Field(min_length=1)
 
 
 class RunContext(BaseModel):

@@ -154,6 +154,42 @@ Output:
         └── evidence.md
 ```
 
+## Repository Skeleton
+
+```bash
+uv run reposcout skeleton --root ../target-repo
+```
+
+Prints tracked paths under `src` and `tests/unit` -- the deterministic source of
+truth a caller's `target_hints` (kind `path`) can be checked against.
+
+## Evidence Pack (Pack First)
+
+Merges and deduplicates requested source ranges into one deterministic Pack,
+instead of the caller reading the same or overlapping ranges multiple times.
+See [`docs/pack_first_policy.md`](docs/pack_first_policy.md) for when a Strong
+Model should call this before individual reads.
+
+```yaml
+# request.yaml
+ranges:
+  - path: src/reposcout/evidence.py
+    start_line: 1
+    end_line: 20
+  - path: src/reposcout/evidence.py
+    start_line: 15
+    end_line: 30
+```
+
+```bash
+uv run reposcout pack request.yaml --root ../target-repo
+```
+
+Outputs one merged, hashed `PackedSource` per non-overlapping range, plus
+`PackMetrics` (`requested_ranges`, `packed_ranges`, `requested_source_bytes`,
+`packed_source_bytes`, `duplicate_or_overlap_bytes_eliminated`, `unique_paths`,
+`pack_chars`) -- all computed deterministically, with no LLM call involved.
+
 ## Core rule
 
 **Planning may be batched. Ornith execution is one query per fresh invocation.**

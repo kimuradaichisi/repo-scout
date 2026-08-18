@@ -45,3 +45,28 @@ def test_empty_when_no_tracked_files(tmp_path: Path) -> None:
 
     assert RepositorySkeleton().list_files(tmp_path) == []
     assert RepositorySkeleton().as_text(tmp_path) == ""
+
+
+def test_contains_tracked_path(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _add(tmp_path, "src/reposcout/models.py")
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+
+    assert RepositorySkeleton().contains(tmp_path, "src/reposcout/models.py") is True
+
+
+def test_contains_false_for_nonexistent_path(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _add(tmp_path, "src/reposcout/models.py")
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+
+    assert RepositorySkeleton().contains(tmp_path, "src/reposcout/does_not_exist.py") is False
+
+
+def test_contains_false_for_untracked_path(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    _add(tmp_path, "src/reposcout/models.py")
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+    (tmp_path / "src/reposcout/untracked.py").write_text("x", encoding="utf-8")
+
+    assert RepositorySkeleton().contains(tmp_path, "src/reposcout/untracked.py") is False

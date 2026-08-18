@@ -5,7 +5,8 @@ from pathlib import Path
 
 import yaml
 
-from reposcout.models import InvestigationPlan, InvestigationQuery, QueryTool
+from reposcout.models import InvestigationPlan, InvestigationQuery, PackRequest, QueryTool
+from reposcout.pack import EvidencePackBuilder
 from reposcout.runner import InvestigationRunner, QueryRunner
 from reposcout.skeleton import RepositorySkeleton
 
@@ -33,6 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     skeleton = subparsers.add_parser("skeleton")
     skeleton.add_argument("--root", type=Path, default=Path.cwd())
+
+    pack = subparsers.add_parser("pack")
+    pack.add_argument("request", type=Path)
+    pack.add_argument("--root", type=Path, default=Path.cwd())
 
     return parser
 
@@ -92,6 +97,16 @@ def run_skeleton(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_pack(args: argparse.Namespace) -> int:
+    payload = yaml.safe_load(args.request.read_text(encoding="utf-8"))
+    request = PackRequest.model_validate(payload)
+
+    pack = EvidencePackBuilder().build(args.root.resolve(), request.ranges)
+
+    print(pack.model_dump_json(indent=2))
+    return 0
+
+
 def _default_run_dir(root: Path) -> Path:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     return root / ".reposcout" / "runs" / run_id
@@ -108,6 +123,9 @@ def main() -> int:
 
     if args.command == "skeleton":
         return run_skeleton(args)
+
+    if args.command == "pack":
+        return run_pack(args)
 
     return 2
 

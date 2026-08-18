@@ -17,3 +17,6 @@ class RepositorySkeleton:
 
     def as_text(self, root: Path) -> str:
         return "\n".join(self.list_files(root))
+
+    def contains(self, root: Path, path: str) -> bool:
+        return path in set(self.list_files(root))
