@@ -7,6 +7,7 @@ import yaml
 
 from reposcout.models import InvestigationPlan, InvestigationQuery, QueryTool
 from reposcout.runner import InvestigationRunner, QueryRunner
+from reposcout.skeleton import RepositorySkeleton
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
     investigate.add_argument("plan", type=Path)
     investigate.add_argument("--root", type=Path, default=Path.cwd())
     investigate.add_argument("--output", type=Path)
+
+    skeleton = subparsers.add_parser("skeleton")
+    skeleton.add_argument("--root", type=Path, default=Path.cwd())
 
     return parser
 
@@ -82,6 +86,12 @@ def run_investigate(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 1
 
 
+def run_skeleton(args: argparse.Namespace) -> int:
+    for path in RepositorySkeleton().list_files(args.root.resolve()):
+        print(path)
+    return 0
+
+
 def _default_run_dir(root: Path) -> Path:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     return root / ".reposcout" / "runs" / run_id
@@ -95,6 +105,9 @@ def main() -> int:
 
     if args.command == "investigate":
         return run_investigate(args)
+
+    if args.command == "skeleton":
+        return run_skeleton(args)
 
     return 2
 
