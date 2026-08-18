@@ -45,3 +45,33 @@ def test_pack_cli_produces_machine_readable_output(tmp_path: Path) -> None:
     assert payload["sources"][0]["path"] == "src/reposcout/skeleton.py"
     assert payload["sources"][0]["start_line"] == 1
     assert payload["sources"][0]["end_line"] == 10
+
+
+def test_pack_cli_reports_untracked_path_as_json_error_not_traceback(tmp_path: Path) -> None:
+    request_file = tmp_path / "request.yaml"
+    request_file.write_text(
+        yaml.safe_dump({"ranges": [{"path": "does/not/exist.py", "start_line": 1, "end_line": 1}]}),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "reposcout.cli",
+            "pack",
+            str(request_file),
+            "--root",
+            str(REPO_ROOT),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stdout
+    assert "Traceback" not in completed.stderr
+    payload = json.loads(completed.stdout)
+    assert "error" in payload

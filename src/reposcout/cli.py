@@ -1,4 +1,5 @@
 import argparse
+import json
 import time
 from datetime import datetime
 from pathlib import Path
@@ -92,7 +93,13 @@ def run_investigate(args: argparse.Namespace) -> int:
 
 
 def run_skeleton(args: argparse.Namespace) -> int:
-    for path in RepositorySkeleton().list_files(args.root.resolve()):
+    try:
+        files = RepositorySkeleton().list_files(args.root.resolve())
+    except RuntimeError as error:
+        print(json.dumps({"error": str(error)}, indent=2))
+        return 1
+
+    for path in files:
         print(path)
     return 0
 
@@ -101,7 +108,11 @@ def run_pack(args: argparse.Namespace) -> int:
     payload = yaml.safe_load(args.request.read_text(encoding="utf-8"))
     request = PackRequest.model_validate(payload)
 
-    pack = EvidencePackBuilder().build(args.root.resolve(), request.ranges)
+    try:
+        pack = EvidencePackBuilder().build(args.root.resolve(), request.ranges)
+    except ValueError as error:
+        print(json.dumps({"error": str(error)}, indent=2))
+        return 1
 
     print(pack.model_dump_json(indent=2))
     return 0
