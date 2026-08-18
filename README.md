@@ -223,6 +223,46 @@ uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
 
+Install RepoScout Locally
+
+The steps above (`uv sync`, `uv run reposcout ...`) only work from inside this
+repository's own checkout and virtual environment. To call `reposcout`
+directly from another repository, install it as a standalone uv tool instead:
+
+uv tool install --editable /path/to/repo-scout
+
+This resolves RepoScout into its own isolated environment under uv's tool
+directory (`uv tool dir`) and puts a `reposcout` executable on `PATH`
+(typically `~/.local/bin/reposcout`) that does not depend on this
+repository's `.venv`. `--editable` means edits to this checkout take effect
+immediately, with no reinstall step.
+
+Verify it from outside this repository:
+
+cd /
+reposcout --help
+
+Use RepoScout From Another Repository
+
+Once installed, run any command with `--root` pointing at the repository
+under investigation, from anywhere on the machine:
+
+reposcout skeleton --root /path/to/target-repo
+reposcout query --root /path/to/target-repo --id Q1 --tool git_log
+reposcout investigate examples/investigation.yaml --root /path/to/target-repo
+
+Upgrade / Reinstall The Local Checkout
+
+Because `--editable` installs point at this checkout's source directly, most
+code changes need no reinstall. If `pyproject.toml` changes (dependencies,
+the entry point) or the tool install is otherwise out of sync, reinstall:
+
+uv tool install --editable --force /path/to/repo-scout
+
+Uninstall
+
+uv tool uninstall reposcout
+
 Quick Start
 
 1. Inspect the Repository Skeleton
