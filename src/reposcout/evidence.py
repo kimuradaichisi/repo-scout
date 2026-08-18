@@ -3,10 +3,69 @@ from pathlib import Path
 
 import yaml
 
-from reposcout.models import EvidenceResult, InvestigationPlan, InvestigationQuery
+from reposcout.models import (
+    EvidenceContract,
+    EvidencePack,
+    EvidenceResult,
+    InvestigationPlan,
+    InvestigationQuery,
+    QueryEvidence,
+    SourceLocation,
+    UnknownEvidence,
+)
 
 
 class EvidenceWriter:
+    def build_contract(
+        self,
+        plan: InvestigationPlan,
+        results: list[EvidenceResult],
+        pack: EvidencePack | None = None,
+    ) -> EvidenceContract:
+        query_evidence = [
+            QueryEvidence(
+                query_id=result.query_id,
+                question=query.instruction or self._describe_query(query),
+                executor=result.executor,
+                status=result.status,
+                evidence=result.evidence,
+                source_locations=list(result.source_locations),
+            )
+            for query, result in zip(plan.queries, results, strict=False)
+        ]
+        unknown = [
+            UnknownEvidence(
+                query_id=result.query_id,
+                status=result.status,
+                reason=result.error or f"status={result.status}",
+            )
+            for result in results
+            if result.status in {"ERROR", "UNRESOLVED"}
+        ]
+        locations = [location for item in query_evidence for location in item.source_locations]
+        if pack:
+            locations.extend(
+                SourceLocation(
+                    path=source.path,
+                    start_line=source.start_line,
+                    end_line=source.end_line,
+                    content_hash=source.sha256,
+                )
+                for source in pack.sources
+            )
+        return EvidenceContract(
+            goal=plan.goal,
+            query_evidence=query_evidence,
+            source_locations=self._deduplicate_locations(locations),
+            unknown=unknown,
+        )
+
+    def write_contract(self, run_dir: Path, contract: EvidenceContract) -> None:
+        (run_dir / "evidence-contract.json").write_text(
+            json.dumps(contract.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
     def write_plan(self, run_dir: Path, plan: InvestigationPlan) -> None:
         payload = plan.model_dump(mode="json", exclude_none=True)
         (run_dir / "plan.yaml").write_text(
@@ -66,3 +125,13 @@ class EvidenceWriter:
     def _describe_query(self, query: InvestigationQuery) -> str:
         data = query.model_dump(mode="json", exclude_none=True)
         return json.dumps(data, ensure_ascii=False)
+
+    def _deduplicate_locations(self, locations: list[SourceLocation]) -> list[SourceLocation]:
+        unique: list[SourceLocation] = []
+        seen: set[tuple[str, int, int, str | None]] = set()
+        for location in locations:
+            key = (location.path, location.start_line, location.end_line, location.content_hash)
+            if key not in seen:
+                seen.add(key)
+                unique.append(location)
+        return unique

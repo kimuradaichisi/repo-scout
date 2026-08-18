@@ -223,6 +223,33 @@ Outputs one merged, hashed `PackedSource` per non-overlapping range, plus
 
 This intentionally prevents conversation-history contamination between repository investigations.
 
+## Investigation Trace
+
+Investigation Trace records deterministic exploration metadata for later comparison:
+
+```text
+Observe -> Compare -> Candidate -> Human Approve -> Policy / Workflow / Tool
+```
+
+Trace is observation data, not automatic learning. RepoScout does not infer semantic
+coverage, generate rules, or apply policies from a trace. A future analyzer may identify
+frequent low-cost paths and propose Rule Candidates, but human approval is required before
+promotion.
+
+Tracing is opt-in and writes JSONL, one header or step record per line:
+
+```bash
+uv run reposcout investigate examples/investigation.yaml \
+  --root ../target-repo \
+  --trace-out .reposcout/traces/investigation.jsonl \
+  --investigation-id caller-provided-id
+```
+
+Each step keeps its sequence, action, executor, query/status, elapsed time, byte/count
+metrics, and source path/range/hash metadata. Source bodies are not duplicated in traces;
+the Evidence Contract remains their source of truth. The same investigation ID lets a caller
+join RepoScout trace data with external model, token, cost, or evaluator telemetry.
+
 ## Next Milestones
 
 1. Validate token savings manually with Claude Code.
@@ -232,3 +259,6 @@ This intentionally prevents conversation-history contamination between repositor
    query without an explicit tool is `UNRESOLVED`, never routed to Ornith automatically.
 5. Future: `include-ignored` `RepositoryFileScope` mode (deliberately surfacing
    `.gitignore`d files), not implemented.
+6. Future: trace reporting for frequent exploration paths, repeated searches/reads,
+  unresolved hotspots, and external evaluator joins. This milestone does not generate or
+  apply Rule Candidates automatically.

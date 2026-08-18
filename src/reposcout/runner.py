@@ -1,3 +1,6 @@
+import time
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from reposcout.evidence import EvidenceWriter
@@ -9,9 +12,12 @@ from reposcout.models import (
     EvidenceResult,
     InvestigationPlan,
     InvestigationQuery,
+    InvestigationTrace,
     QueryTool,
+    TraceAction,
 )
 from reposcout.ornith.client import OrnithWorker
+from reposcout.trace import TraceWriter
 
 
 class QueryRunner:
@@ -69,16 +75,78 @@ class InvestigationRunner:
         root: Path,
         plan: InvestigationPlan,
         run_dir: Path,
+        investigation_id: str | None = None,
+        trace_out: Path | None = None,
     ) -> list[EvidenceResult]:
         run_dir.mkdir(parents=True, exist_ok=True)
         self._writer.write_plan(run_dir, plan)
+        trace = self._new_trace(investigation_id) if trace_out else None
 
         results: list[EvidenceResult] = []
 
         for query in plan.queries:
+            started = time.perf_counter()
             result = self._query_runner.execute(root, query)
             self._writer.write_result(run_dir, result)
             results.append(result)
+            if trace:
+                self._record_query(trace, query, result, time.perf_counter() - started)
 
         self._writer.write_pack(run_dir, plan, results)
+        self._writer.write_contract(run_dir, self._writer.build_contract(plan, results))
+        if trace and trace_out:
+            trace.add_step(action="stop", executor="investigation", status="PASS")
+            trace.completed_at = datetime.now(UTC)
+            TraceWriter().write(trace_out, trace)
         return results
+
+    def _new_trace(self, investigation_id: str | None) -> InvestigationTrace:
+        return TraceWriter.new_trace(investigation_id or f"reposcout-{uuid.uuid4().hex}")
+
+    def _record_query(
+        self,
+        trace: InvestigationTrace,
+        query: InvestigationQuery,
+        result: EvidenceResult,
+        elapsed: float,
+    ) -> None:
+        action = self._trace_action(query, result)
+        trace.add_step(
+            action=action,
+            executor=result.executor,
+            status=result.status,
+            query_id=query.id,
+            target_kind=query.tool.value if query.tool else None,
+            target_value=query.file or query.pattern,
+            result_count=(
+                result.result_count
+                if result.result_count is not None
+                else self._line_count(result.evidence)
+            ),
+            elapsed_ms=max(0, round(elapsed * 1000)),
+            input_bytes=result.input_bytes,
+            output_bytes=(
+                result.output_bytes
+                if result.output_bytes is not None
+                else len(result.evidence.encode("utf-8"))
+            ),
+            source_locations=result.source_locations,
+        )
+
+    def _trace_action(self, query: InvestigationQuery, result: EvidenceResult) -> TraceAction:
+        if result.status == "UNRESOLVED":
+            return "unresolved"
+        if result.status == "ERROR":
+            return "error"
+        if query.tool is None:
+            return "error"
+        actions: dict[QueryTool, TraceAction] = {
+            QueryTool.RG: "search",
+            QueryTool.READ: "read",
+            QueryTool.GIT_LOG: "git_log",
+            QueryTool.ORNITH: "search",
+        }
+        return actions[query.tool]
+
+    def _line_count(self, evidence: str) -> int:
+        return len(evidence.splitlines())

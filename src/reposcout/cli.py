@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     investigate.add_argument("plan", type=Path)
     investigate.add_argument("--root", type=Path, default=Path.cwd())
     investigate.add_argument("--output", type=Path)
+    investigate.add_argument("--trace-out", type=Path)
+    investigate.add_argument("--investigation-id")
 
     skeleton = subparsers.add_parser("skeleton")
     skeleton.add_argument("--root", type=Path, default=Path.cwd())
@@ -102,6 +104,8 @@ def run_investigate(args: argparse.Namespace) -> int:
         root=args.root.resolve(),
         plan=plan,
         run_dir=run_dir,
+        investigation_id=args.investigation_id,
+        trace_out=args.trace_out,
     )
     elapsed = time.perf_counter() - started
 
