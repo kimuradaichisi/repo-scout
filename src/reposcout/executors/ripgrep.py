@@ -9,7 +9,14 @@ from reposcout.models import EvidenceResult, InvestigationQuery, SourceLocation
 # instead and are deliberately not parsed into locations below -- only an
 # actual match is a confirmed location, not the surrounding context shown
 # alongside it.
-_MATCH_LINE = re.compile(r"^(?P<path>.+?):(?P<line>\d+):")
+#
+# The path group excludes ':' and whitespace: real file paths never contain
+# either, and without that restriction a non-greedy ".+?" can walk past a
+# context line's "-line-" separator into its content and false-match a
+# coincidental "digit:digit" pattern deeper in the line (e.g. an ISO
+# timestamp like "12:00:00" inside a matched JSON fixture), fabricating a
+# SourceLocation with a bogus (or zero, which fails validation) line number.
+_MATCH_LINE = re.compile(r"^(?P<path>[^:\s]+):(?P<line>\d+):")
 
 
 def _match_locations(stdout: str) -> list[SourceLocation]:
