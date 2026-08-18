@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import json
 import time
@@ -14,10 +16,7 @@ from reposcout.runner import InvestigationRunner, QueryRunner
 from reposcout.scope import FileScopeMode, RepositoryFileScope
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="reposcout")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
+def _add_query_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     query = subparsers.add_parser("query")
     query.add_argument("--root", type=Path, default=Path.cwd())
     query.add_argument("--id", default="Q1")
@@ -30,6 +29,10 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--end-line", type=int)
     query.add_argument("--git-arg", action="append", default=[])
 
+
+def _add_investigate_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     investigate = subparsers.add_parser("investigate")
     investigate.add_argument("plan", type=Path)
     investigate.add_argument("--root", type=Path, default=Path.cwd())
@@ -37,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     investigate.add_argument("--trace-out", type=Path)
     investigate.add_argument("--investigation-id")
 
+
+def _add_skeleton_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     skeleton = subparsers.add_parser("skeleton")
     skeleton.add_argument("--root", type=Path, default=Path.cwd())
     skeleton.add_argument(
@@ -45,9 +50,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=FileScopeMode.TRACKED_ONLY.value,
     )
 
+
+def _add_pack_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     pack = subparsers.add_parser("pack")
     pack.add_argument("request", type=Path)
     pack.add_argument("--root", type=Path, default=Path.cwd())
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="reposcout")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    _add_query_parser(subparsers)
+    _add_investigate_parser(subparsers)
+    _add_skeleton_parser(subparsers)
+    _add_pack_parser(subparsers)
 
     return parser
 

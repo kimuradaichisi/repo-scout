@@ -99,20 +99,38 @@ def test_real_git_log_execution_has_no_fabricated_source_location(tmp_path: Path
     assert result.source_locations == []
 
 
-def test_contract_deduplicates_locations_from_real_ripgrep_execution(tmp_path: Path) -> None:
+def test_contract_keeps_distinct_locations_from_real_ripgrep_execution(tmp_path: Path) -> None:
+    """Two matches in one file are two distinct SourceLocations, not deduplicated
+    away -- distinctness is by (path, start, end, hash), and these differ by line."""
     _init_repo(tmp_path)
     _write_and_commit(tmp_path, "src/a.py", "dup\nother\ndup\n")
+
+    query = InvestigationQuery(id="Q1", tool=QueryTool.RG, pattern="dup", paths=["src/a.py"])
+    result = RipgrepExecutor().execute(tmp_path, query)
+
+    assert len(result.source_locations) == 2
+
+
+def test_contract_collapses_exact_duplicate_locations_to_one(tmp_path: Path) -> None:
+    """Unambiguous dedup regression: two queries producing the *same* single
+    match location must leave exactly one SourceLocation at the contract's
+    top level, not two -- distinct from the "two different lines" case above.
+    """
+    _init_repo(tmp_path)
+    _write_and_commit(tmp_path, "src/a.py", "dup\nother\n")
 
     plan = InvestigationPlan(
         goal="find dup",
         queries=[
             InvestigationQuery(id="Q1", tool=QueryTool.RG, pattern="dup", paths=["src/a.py"]),
             InvestigationQuery(id="Q2", tool=QueryTool.RG, pattern="dup", paths=["src/a.py"]),
+            InvestigationQuery(id="Q3", tool=QueryTool.RG, pattern="dup", paths=["src/a.py"]),
         ],
     )
     results = [RipgrepExecutor().execute(tmp_path, query) for query in plan.queries]
 
     contract = EvidenceWriter().build_contract(plan, results)
 
-    assert len(contract.query_evidence[0].source_locations) == 2
-    assert len(contract.source_locations) == 2
+    raw_location_count = sum(len(item.source_locations) for item in contract.query_evidence)
+    assert raw_location_count == 3
+    assert len(contract.source_locations) == 1

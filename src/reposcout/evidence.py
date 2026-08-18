@@ -99,41 +99,35 @@ class EvidenceWriter:
         plan: InvestigationPlan,
         results: list[EvidenceResult],
     ) -> None:
-        sections = [
-            "# Investigation Evidence",
-            "",
-            "## Goal",
-            "",
-            plan.goal,
-            "",
-        ]
-
+        sections = ["# Investigation Evidence", "", "## Goal", "", plan.goal, ""]
         for query, result in zip(plan.queries, results, strict=True):
-            sections.extend(
-                [
-                    f"## {query.id}",
-                    "",
-                    f"Status: {result.status}",
-                    "",
-                    f"Executor: {result.executor}",
-                    "",
-                    "Query:",
-                    "",
-                    query.instruction or self._describe_query(query),
-                    "",
-                    "Evidence:",
-                    "",
-                    result.evidence or "(none)",
-                    "",
-                ]
-            )
-            if result.error:
-                sections.extend(["Error:", "", result.error, ""])
+            sections.extend(self._query_section(query, result))
 
         (run_dir / "evidence.md").write_text(
             "\n".join(sections),
             encoding="utf-8",
         )
+
+    def _query_section(self, query: InvestigationQuery, result: EvidenceResult) -> list[str]:
+        section = [
+            f"## {query.id}",
+            "",
+            f"Status: {result.status}",
+            "",
+            f"Executor: {result.executor}",
+            "",
+            "Query:",
+            "",
+            query.instruction or self._describe_query(query),
+            "",
+            "Evidence:",
+            "",
+            result.evidence or "(none)",
+            "",
+        ]
+        if result.error:
+            section.extend(["Error:", "", result.error, ""])
+        return section
 
     def _describe_query(self, query: InvestigationQuery) -> str:
         data = query.model_dump(mode="json", exclude_none=True)
