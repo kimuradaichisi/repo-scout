@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Thin adapter that runs RepoScout against this snapshot.
+#
+# Two things are deliberate here.
+#
+# The RepoScout that runs is the harness-owned one, not the copy of the source
+# sitting in this snapshot. An experiment may edit the snapshot's executors;
+# the instrument doing the measuring must not change along with the thing it
+# measures.
+#
+# Its location arrives through REPOSCOUT_BIN instead of being written down.
+# Reading this file therefore tells you that RepoScout lives somewhere, and
+# nothing about where -- no path outside this snapshot is recoverable from it.
+set -euo pipefail
+
+snapshot="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -z "${REPOSCOUT_BIN:-}" ]; then
+  echo "scout: REPOSCOUT_BIN is not set; the harness must inject it" >&2
+  exit 2
+fi
+
+plan="${1:-}"
+if [ -z "$plan" ]; then
+  echo "usage: ./scout <plan.yaml> [output-dir]" >&2
+  exit 2
+fi
+
+# Everything is resolved relative to the snapshot, so a relative argument can
+# never reach outside it by accident.
+case "$plan" in
+  /*) ;;
+  *) plan="$snapshot/$plan" ;;
+esac
+
+output="${2:-$snapshot/.scout/$(basename "$plan" .yaml)}"
+case "$output" in
+  /*) ;;
+  *) output="$snapshot/$output" ;;
+esac
+
+exec "$REPOSCOUT_BIN" investigate "$plan" --root "$snapshot" --output "$output"

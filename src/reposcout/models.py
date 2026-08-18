@@ -44,6 +44,21 @@ class InvestigationPlan(BaseModel):
     queries: list[InvestigationQuery] = Field(min_length=1)
 
 
+class InvestigationContract(BaseModel):
+    """What the caller wants investigated -- not what was found.
+
+    known_facts are caller-confirmed; RepoScout does not re-derive them.
+    target_hints are unconfirmed starting points, not facts.
+    """
+
+    goal: str = Field(min_length=1)
+    questions: list[str] = Field(min_length=1)
+    known_facts: list[str] = Field(default_factory=list)
+    target_hints: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    stop_conditions: list[str] = Field(min_length=1)
+
+
 class EvidenceResult(BaseModel):
     query_id: str
     status: Literal["PASS", "ERROR"]
