@@ -1,9 +1,20 @@
-"""Bash calls into the reposcout CLI, and Reads that followed a pack call."""
+"""Bash calls into the reposcout CLI, and Reads that followed a pack call.
+
+Detection is by command *tokens*, not a substring search: the snapshot
+itself lives at a path like /tmp/reposcout-m5-.../target, so a plain `find`
+or `grep` naming that path contains the word "reposcout" without invoking
+the CLI at all. Matching substrings counted those as calls; this doesn't.
+"""
 
 import json
+import re
+import shlex
+from pathlib import Path
 from typing import Any
 
 from cp8_transcript import ToolCall, tool_calls, tool_results
+
+BASH_SEPARATORS = re.compile(r"&&|\|\||[;|\n]")
 
 
 def _bash_calls(events: list[dict[str, Any]]) -> list[ToolCall]:
@@ -14,14 +25,28 @@ def _bash_calls(events: list[dict[str, Any]]) -> list[ToolCall]:
     ]
 
 
+def _invokes_reposcout(command: str, subcommand: str | None = None) -> bool:
+    for segment in BASH_SEPARATORS.split(command):
+        try:
+            words = [t for t in shlex.split(segment) if not t.startswith("-")]
+        except ValueError:
+            continue
+        if not words or Path(words[0]).name != "reposcout":
+            continue
+        if subcommand is None or (len(words) > 1 and words[1] == subcommand):
+            return True
+    return False
+
+
 def reposcout_call_count(events: list[dict[str, Any]]) -> int:
-    return sum("reposcout" in str(call.payload.get("command", "")) for call in _bash_calls(events))
+    return sum(
+        _invokes_reposcout(str(call.payload.get("command", ""))) for call in _bash_calls(events)
+    )
 
 
 def pack_call_count(events: list[dict[str, Any]]) -> int:
     return sum(
-        "reposcout" in str(call.payload.get("command", ""))
-        and " pack " in f" {call.payload.get('command', '')} "
+        _invokes_reposcout(str(call.payload.get("command", "")), "pack")
         for call in _bash_calls(events)
     )
 
@@ -33,7 +58,7 @@ def pack_call_metrics(events: list[dict[str, Any]]) -> dict[str, int]:
     eliminated_bytes = 0
     for call in _bash_calls(events):
         command = str(call.payload.get("command", ""))
-        if "reposcout" not in command or " pack " not in f" {command} ":
+        if not _invokes_reposcout(command, "pack"):
             continue
         payload = _parse_pack_output(results.get(call.tool_use_id, ""))
         if payload is None:
@@ -63,7 +88,7 @@ def final_direct_reads_after_pack(events: list[dict[str, Any]]) -> int:
             continue
         if call.name == "Bash":
             command = str(call.payload.get("command", ""))
-            if "reposcout" in command and " pack " in f" {command} ":
+            if _invokes_reposcout(command, "pack"):
                 ordered_names.append("pack")
         elif call.name == "Read":
             ordered_names.append("read")

@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from m5_compare import compare
-from m5_pack_calls import final_direct_reads_after_pack, pack_call_count, pack_call_metrics
+from m5_pack_calls import (
+    final_direct_reads_after_pack,
+    pack_call_count,
+    pack_call_metrics,
+    reposcout_call_count,
+)
 from m5_read_analysis import fictional_read_paths, read_events, repeat_metrics
 
 
@@ -159,6 +164,24 @@ def check_07_pack_call_detected_and_not_confused_with_skeleton() -> CheckResult:
     return CheckResult("07_pack_call_detected_and_not_confused_with_skeleton", ok, str(metrics))
 
 
+def check_07b_path_mentioning_reposcout_is_not_a_call() -> CheckResult:
+    """Regression: M5's live control run hit this -- the snapshot path itself
+    contains "reposcout" (/tmp/reposcout-m5-.../target), so `find`/`grep`
+    naming that path must not be counted as invoking the CLI."""
+    events = [
+        _assistant_bash("t1", "find /tmp/reposcout-m5-20260818/control/target -maxdepth 2"),
+        _user_result("t1", "src\ntests"),
+        _assistant_bash("t2", 'grep -rl "CONTEXT_LINES" /tmp/reposcout-m5-20260818/control/target'),
+        _user_result("t2", "ripgrep.py"),
+    ]
+    ok = pack_call_count(events) == 0 and reposcout_call_count(events) == 0
+    return CheckResult(
+        "07b_path_mentioning_reposcout_is_not_a_call",
+        ok,
+        f"pack={pack_call_count(events)} reposcout={reposcout_call_count(events)}",
+    )
+
+
 def check_08_reads_after_pack_are_counted() -> CheckResult:
     events = [
         _assistant_read("t0", "/repo/a.py"),
@@ -232,6 +255,7 @@ ALL_CHECKS = (
     check_05_changed_content_is_not_a_duplicate,
     check_06_fictional_read_path_detected,
     check_07_pack_call_detected_and_not_confused_with_skeleton,
+    check_07b_path_mentioning_reposcout_is_not_a_call,
     check_08_reads_after_pack_are_counted,
     check_09_all_three_reduced_is_observed_reduction,
     check_10_nothing_reduced_is_no_observed_reduction,
