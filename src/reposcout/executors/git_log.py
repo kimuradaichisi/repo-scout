@@ -10,6 +10,9 @@ class GitLogExecutor:
         code, stdout, stderr = run_command(root, command)
 
         if code == 0:
+            # Each line names a commit, not a file:line span -- there is no
+            # source_location to confirm here without guessing which file the
+            # caller means. source_locations stays [] rather than invented.
             return EvidenceResult(
                 query_id=query.id,
                 status="PASS",

@@ -1,19 +1,22 @@
+from __future__ import annotations
+
 import argparse
+import json
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
+from pydantic import ValidationError  # pyright: ignore[reportMissingImports]
 
-from reposcout.models import InvestigationPlan, InvestigationQuery, QueryTool
+from reposcout.models import InvestigationPlan, InvestigationQuery, PackRequest, QueryTool
+from reposcout.pack import EvidencePackBuilder
 from reposcout.runner import InvestigationRunner, QueryRunner
-from reposcout.skeleton import RepositorySkeleton
+from reposcout.scope import FileScopeMode, RepositoryFileScope
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="reposcout")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
+def _add_query_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     query = subparsers.add_parser("query")
     query.add_argument("--root", type=Path, default=Path.cwd())
     query.add_argument("--id", default="Q1")
@@ -26,13 +29,42 @@ def build_parser() -> argparse.ArgumentParser:
     query.add_argument("--end-line", type=int)
     query.add_argument("--git-arg", action="append", default=[])
 
+
+def _add_investigate_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     investigate = subparsers.add_parser("investigate")
     investigate.add_argument("plan", type=Path)
     investigate.add_argument("--root", type=Path, default=Path.cwd())
     investigate.add_argument("--output", type=Path)
+    investigate.add_argument("--trace-out", type=Path)
+    investigate.add_argument("--investigation-id")
 
+
+def _add_skeleton_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     skeleton = subparsers.add_parser("skeleton")
     skeleton.add_argument("--root", type=Path, default=Path.cwd())
+    skeleton.add_argument(
+        "--scope",
+        choices=[item.value for item in FileScopeMode],
+        default=FileScopeMode.TRACKED_ONLY.value,
+    )
+
+
+def _add_pack_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    pack = subparsers.add_parser("pack")
+    pack.add_argument("request", type=Path)
+    pack.add_argument("--root", type=Path, default=Path.cwd())
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="reposcout")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    _add_query_parser(subparsers)
+    _add_investigate_parser(subparsers)
+    _add_skeleton_parser(subparsers)
+    _add_pack_parser(subparsers)
 
     return parser
 
@@ -60,9 +92,27 @@ def run_query(args: argparse.Namespace) -> int:
     return 0 if result.status == "PASS" else 1
 
 
+def _parse_request(path: Path, model: type[InvestigationPlan | PackRequest]) -> Any:
+    """Load a YAML request file and validate it, or raise a plain ValueError.
+
+    Malformed input is expected here (it is caller-authored, not developer
+    error), so yaml.YAMLError / pydantic's ValidationError are normalized to
+    ValueError -- one exception type every call site can catch at the CLI
+    boundary instead of leaking a traceback.
+    """
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return model.model_validate(payload)
+    except (yaml.YAMLError, ValidationError) as error:
+        raise ValueError(str(error)) from error
+
+
 def run_investigate(args: argparse.Namespace) -> int:
-    payload = yaml.safe_load(args.plan.read_text(encoding="utf-8"))
-    plan = InvestigationPlan.model_validate(payload)
+    try:
+        plan = _parse_request(args.plan, InvestigationPlan)
+    except ValueError as error:
+        print(json.dumps({"error": str(error)}, indent=2))
+        return 1
 
     run_dir = args.output or _default_run_dir(args.root.resolve())
 
@@ -71,6 +121,8 @@ def run_investigate(args: argparse.Namespace) -> int:
         root=args.root.resolve(),
         plan=plan,
         run_dir=run_dir,
+        investigation_id=args.investigation_id,
+        trace_out=args.trace_out,
     )
     elapsed = time.perf_counter() - started
 
@@ -87,8 +139,27 @@ def run_investigate(args: argparse.Namespace) -> int:
 
 
 def run_skeleton(args: argparse.Namespace) -> int:
-    for path in RepositorySkeleton().list_files(args.root.resolve()):
+    scope = RepositoryFileScope(FileScopeMode(args.scope))
+    try:
+        files = scope.list_files(args.root.resolve())
+    except RuntimeError as error:
+        print(json.dumps({"error": str(error)}, indent=2))
+        return 1
+
+    for path in files:
         print(path)
+    return 0
+
+
+def run_pack(args: argparse.Namespace) -> int:
+    try:
+        request = _parse_request(args.request, PackRequest)
+        pack = EvidencePackBuilder().build(args.root.resolve(), request.ranges)
+    except ValueError as error:
+        print(json.dumps({"error": str(error)}, indent=2))
+        return 1
+
+    print(pack.model_dump_json(indent=2))
     return 0
 
 
@@ -108,6 +179,9 @@ def main() -> int:
 
     if args.command == "skeleton":
         return run_skeleton(args)
+
+    if args.command == "pack":
+        return run_pack(args)
 
     return 2
 

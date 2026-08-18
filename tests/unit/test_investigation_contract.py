@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from reposcout.models import InvestigationContract
+from reposcout.models import InvestigationContract, TargetHint
 
 
 def _valid_kwargs(**overrides: object) -> dict[str, object]:
@@ -9,7 +9,7 @@ def _valid_kwargs(**overrides: object) -> dict[str, object]:
         "goal": "Find who consumes EvidenceWriter",
         "questions": ["Where is EvidenceWriter defined?"],
         "known_facts": ["EvidenceWriter lives in src/reposcout/evidence.py"],
-        "target_hints": ["EvidenceWriter"],
+        "target_hints": [TargetHint(kind="symbol", value="EvidenceWriter")],
         "constraints": ["do not read docs/"],
         "stop_conditions": ["all questions answered"],
     }
@@ -57,11 +57,16 @@ def test_constraints_may_be_empty() -> None:
 
 
 def test_each_collection_retains_its_given_values() -> None:
+    hints = [
+        TargetHint(kind="path", value="src/reposcout/evidence.py"),
+        TargetHint(kind="symbol", value="EvidenceWriter"),
+        TargetHint(kind="literal", value="CONTEXT_LINES"),
+    ]
     contract = InvestigationContract(
         **_valid_kwargs(
             questions=["Q1", "Q2"],
             known_facts=["F1"],
-            target_hints=["H1", "H2", "H3"],
+            target_hints=hints,
             constraints=["C1"],
             stop_conditions=["S1", "S2"],
         )
@@ -69,6 +74,35 @@ def test_each_collection_retains_its_given_values() -> None:
 
     assert contract.questions == ["Q1", "Q2"]
     assert contract.known_facts == ["F1"]
-    assert contract.target_hints == ["H1", "H2", "H3"]
+    assert contract.target_hints == hints
     assert contract.constraints == ["C1"]
     assert contract.stop_conditions == ["S1", "S2"]
+
+
+def test_target_hint_kind_path() -> None:
+    hint = TargetHint(kind="path", value="src/reposcout/evidence.py")
+
+    assert hint.kind == "path"
+    assert hint.value == "src/reposcout/evidence.py"
+
+
+def test_target_hint_kind_symbol() -> None:
+    hint = TargetHint(kind="symbol", value="EvidenceWriter")
+
+    assert hint.kind == "symbol"
+
+
+def test_target_hint_kind_literal() -> None:
+    hint = TargetHint(kind="literal", value="CONTEXT_LINES")
+
+    assert hint.kind == "literal"
+
+
+def test_target_hint_rejects_unknown_kind() -> None:
+    with pytest.raises(ValidationError):
+        TargetHint(kind="unknown", value="x")  # type: ignore[arg-type]
+
+
+def test_target_hint_rejects_empty_value() -> None:
+    with pytest.raises(ValidationError):
+        TargetHint(kind="path", value="")

@@ -1,19 +1,14 @@
-from pathlib import Path
-
-from reposcout.executors.common import run_command
-
-# Tracked paths only, matching the scope RepoScout's other executors operate
-# within. Untracked and ignored files never appear here, so a query built
-# from this list can only name a path that actually exists.
-SKELETON_PATHS = ("src", "tests/unit")
+from reposcout.scope import FileScopeMode, RepositoryFileScope
 
 
-class RepositorySkeleton:
-    def list_files(self, root: Path) -> list[str]:
-        code, stdout, stderr = run_command(root, ["git", "ls-files", *SKELETON_PATHS])
-        if code != 0:
-            raise RuntimeError(stderr.strip() or f"git ls-files exited with code {code}")
-        return [line for line in stdout.strip().splitlines() if line]
+class RepositorySkeleton(RepositoryFileScope):
+    """The Repository Skeleton: RepositoryFileScope, defaulting to tracked-only.
 
-    def as_text(self, root: Path) -> str:
-        return "\n".join(self.list_files(root))
+    Kept as its own name/class -- rather than calling RepositoryFileScope
+    directly -- because it is the public surface `reposcout skeleton` and
+    EvidencePackBuilder's default validation source were already built on;
+    the tracked-only default must not change.
+    """
+
+    def __init__(self, mode: FileScopeMode = FileScopeMode.TRACKED_ONLY) -> None:
+        super().__init__(mode)
