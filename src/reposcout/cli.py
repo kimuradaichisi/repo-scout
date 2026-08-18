@@ -3,8 +3,10 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
+from pydantic import ValidationError  # pyright: ignore[reportMissingImports]
 
 from reposcout.models import InvestigationPlan, InvestigationQuery, PackRequest, QueryTool
 from reposcout.pack import EvidencePackBuilder
@@ -66,9 +68,27 @@ def run_query(args: argparse.Namespace) -> int:
     return 0 if result.status == "PASS" else 1
 
 
+def _parse_request(path: Path, model: type[InvestigationPlan | PackRequest]) -> Any:
+    """Load a YAML request file and validate it, or raise a plain ValueError.
+
+    Malformed input is expected here (it is caller-authored, not developer
+    error), so yaml.YAMLError / pydantic's ValidationError are normalized to
+    ValueError -- one exception type every call site can catch at the CLI
+    boundary instead of leaking a traceback.
+    """
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return model.model_validate(payload)
+    except (yaml.YAMLError, ValidationError) as error:
+        raise ValueError(str(error)) from error
+
+
 def run_investigate(args: argparse.Namespace) -> int:
-    payload = yaml.safe_load(args.plan.read_text(encoding="utf-8"))
-    plan = InvestigationPlan.model_validate(payload)
+    try:
+        plan = _parse_request(args.plan, InvestigationPlan)
+    except ValueError as error:
+        print(json.dumps({"error": str(error)}, indent=2))
+        return 1
 
     run_dir = args.output or _default_run_dir(args.root.resolve())
 
@@ -105,10 +125,8 @@ def run_skeleton(args: argparse.Namespace) -> int:
 
 
 def run_pack(args: argparse.Namespace) -> int:
-    payload = yaml.safe_load(args.request.read_text(encoding="utf-8"))
-    request = PackRequest.model_validate(payload)
-
     try:
+        request = _parse_request(args.request, PackRequest)
         pack = EvidencePackBuilder().build(args.root.resolve(), request.ranges)
     except ValueError as error:
         print(json.dumps({"error": str(error)}, indent=2))

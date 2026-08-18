@@ -75,3 +75,32 @@ def test_pack_cli_reports_untracked_path_as_json_error_not_traceback(tmp_path: P
     assert "Traceback" not in completed.stderr
     payload = json.loads(completed.stdout)
     assert "error" in payload
+
+
+def test_pack_cli_reports_invalid_request_shape_as_json_error_not_traceback(tmp_path: Path) -> None:
+    request_file = tmp_path / "request.yaml"
+    request_file.write_text(
+        "ranges:\n  - path: src/a.py\n    start_line: 5\n    end_line: 1\n", encoding="utf-8"
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "reposcout.cli",
+            "pack",
+            str(request_file),
+            "--root",
+            str(REPO_ROOT),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stdout
+    assert "Traceback" not in completed.stderr
+    payload = json.loads(completed.stdout)
+    assert "error" in payload
