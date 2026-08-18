@@ -1,6 +1,5 @@
 import time
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 
 from reposcout.evidence import EvidenceWriter
@@ -12,6 +11,7 @@ from reposcout.models import (
     EvidenceResult,
     InvestigationPlan,
     InvestigationQuery,
+    InvestigationStep,
     InvestigationTrace,
     QueryTool,
     TraceAction,
@@ -80,7 +80,7 @@ class InvestigationRunner:
     ) -> list[EvidenceResult]:
         run_dir.mkdir(parents=True, exist_ok=True)
         self._writer.write_plan(run_dir, plan)
-        trace = self._new_trace(investigation_id) if trace_out else None
+        trace, trace_writer = self._start_trace(investigation_id, trace_out)
 
         results: list[EvidenceResult] = []
 
@@ -89,19 +89,32 @@ class InvestigationRunner:
             result = self._query_runner.execute(root, query)
             self._writer.write_result(run_dir, result)
             results.append(result)
-            if trace:
-                self._record_query(trace, query, result, time.perf_counter() - started)
+            if trace is not None:
+                step = self._record_query(trace, query, result, time.perf_counter() - started)
+                if trace_writer is not None:
+                    trace_writer.append_step(trace, step)
 
         self._writer.write_pack(run_dir, plan, results)
         self._writer.write_contract(run_dir, self._writer.build_contract(plan, results))
-        if trace and trace_out:
-            trace.add_step(action="stop", executor="investigation", status="PASS")
-            trace.completed_at = datetime.now(UTC)
-            TraceWriter().write(trace_out, trace)
+        self._finish_trace(trace, trace_writer)
         return results
 
-    def _new_trace(self, investigation_id: str | None) -> InvestigationTrace:
-        return TraceWriter.new_trace(investigation_id or f"reposcout-{uuid.uuid4().hex}")
+    def _start_trace(
+        self, investigation_id: str | None, trace_out: Path | None
+    ) -> tuple[InvestigationTrace | None, TraceWriter | None]:
+        if trace_out is None:
+            return None, None
+        trace = TraceWriter.new_trace(investigation_id or f"reposcout-{uuid.uuid4().hex}")
+        writer = TraceWriter(trace_out)
+        writer.start(trace)
+        return trace, writer
+
+    def _finish_trace(self, trace: InvestigationTrace | None, writer: TraceWriter | None) -> None:
+        if trace is None or writer is None:
+            return
+        stop_step = trace.add_step(action="stop", executor="investigation", status="PASS")
+        writer.append_step(trace, stop_step)
+        writer.complete(trace)
 
     def _record_query(
         self,
@@ -109,9 +122,9 @@ class InvestigationRunner:
         query: InvestigationQuery,
         result: EvidenceResult,
         elapsed: float,
-    ) -> None:
+    ) -> InvestigationStep:
         action = self._trace_action(query, result)
-        trace.add_step(
+        return trace.add_step(
             action=action,
             executor=result.executor,
             status=result.status,
@@ -144,7 +157,7 @@ class InvestigationRunner:
             QueryTool.RG: "search",
             QueryTool.READ: "read",
             QueryTool.GIT_LOG: "git_log",
-            QueryTool.ORNITH: "search",
+            QueryTool.ORNITH: "semantic_explore",
         }
         return actions[query.tool]
 

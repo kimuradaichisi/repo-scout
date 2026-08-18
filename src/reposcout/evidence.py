@@ -22,7 +22,19 @@ class EvidenceWriter:
         results: list[EvidenceResult],
         pack: EvidencePack | None = None,
     ) -> EvidenceContract:
-        query_evidence = [
+        query_evidence = self._build_query_evidence(plan, results)
+        locations = self._collect_source_locations(query_evidence, pack)
+        return EvidenceContract(
+            goal=plan.goal,
+            query_evidence=query_evidence,
+            source_locations=self._deduplicate_locations(locations),
+            unknown=self._build_unknown(results),
+        )
+
+    def _build_query_evidence(
+        self, plan: InvestigationPlan, results: list[EvidenceResult]
+    ) -> list[QueryEvidence]:
+        return [
             QueryEvidence(
                 query_id=result.query_id,
                 question=query.instruction or self._describe_query(query),
@@ -33,7 +45,9 @@ class EvidenceWriter:
             )
             for query, result in zip(plan.queries, results, strict=False)
         ]
-        unknown = [
+
+    def _build_unknown(self, results: list[EvidenceResult]) -> list[UnknownEvidence]:
+        return [
             UnknownEvidence(
                 query_id=result.query_id,
                 status=result.status,
@@ -42,6 +56,10 @@ class EvidenceWriter:
             for result in results
             if result.status in {"ERROR", "UNRESOLVED"}
         ]
+
+    def _collect_source_locations(
+        self, query_evidence: list[QueryEvidence], pack: EvidencePack | None
+    ) -> list[SourceLocation]:
         locations = [location for item in query_evidence for location in item.source_locations]
         if pack:
             locations.extend(
@@ -53,12 +71,7 @@ class EvidenceWriter:
                 )
                 for source in pack.sources
             )
-        return EvidenceContract(
-            goal=plan.goal,
-            query_evidence=query_evidence,
-            source_locations=self._deduplicate_locations(locations),
-            unknown=unknown,
-        )
+        return locations
 
     def write_contract(self, run_dir: Path, contract: EvidenceContract) -> None:
         (run_dir / "evidence-contract.json").write_text(

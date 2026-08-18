@@ -1,6 +1,6 @@
-import hashlib
 from pathlib import Path
 
+from reposcout.executors.common import content_hash
 from reposcout.models import EvidencePack, PackedSource, PackMetrics, SourceRange
 from reposcout.scope import RepositoryFileScope
 
@@ -39,7 +39,7 @@ def _pack_range(path: str, lines: list[str], start: int, end: int) -> PackedSour
         start_line=start,
         end_line=end,
         content=content,
-        sha256=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        sha256=content_hash(content),
     )
 
 

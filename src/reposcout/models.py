@@ -156,6 +156,7 @@ TraceAction = Literal[
     "read",
     "git_log",
     "pack",
+    "semantic_explore",
     "unresolved",
     "error",
     "stop",
@@ -211,7 +212,9 @@ class InvestigationTrace(BaseModel):
 class TraceMetrics(BaseModel):
     search_count: int = 0
     read_count: int = 0
+    git_count: int = 0
     pack_count: int = 0
+    semantic_explore_count: int = 0
     unique_paths: int = 0
     repeated_paths: int = 0
     unresolved_count: int = 0

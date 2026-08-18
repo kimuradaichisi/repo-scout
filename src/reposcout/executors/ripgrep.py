@@ -1,7 +1,30 @@
+import re
 from pathlib import Path
 
 from reposcout.executors.common import run_command
-from reposcout.models import EvidenceResult, InvestigationQuery
+from reposcout.models import EvidenceResult, InvestigationQuery, SourceLocation
+
+# rg's own match-line format with --line-number --with-filename:
+# "path:line:content". Context lines (from --context) use "path-line-content"
+# instead and are deliberately not parsed into locations below -- only an
+# actual match is a confirmed location, not the surrounding context shown
+# alongside it.
+_MATCH_LINE = re.compile(r"^(?P<path>.+?):(?P<line>\d+):")
+
+
+def _match_locations(stdout: str) -> list[SourceLocation]:
+    locations: list[SourceLocation] = []
+    seen: set[tuple[str, int]] = set()
+    for line in stdout.splitlines():
+        match = _MATCH_LINE.match(line)
+        if not match:
+            continue
+        key = (match.group("path"), int(match.group("line")))
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append(SourceLocation(path=key[0], start_line=key[1], end_line=key[1]))
+    return locations
 
 
 class RipgrepExecutor:
@@ -19,7 +42,9 @@ class RipgrepExecutor:
     NARROW_PATH_THRESHOLD = 3
 
     def execute(self, root: Path, query: InvestigationQuery) -> EvidenceResult:
-        command = ["rg", "--line-number", "--no-heading"]
+        # --with-filename: rg omits the path prefix when given exactly one
+        # file, which would make match lines unparseable into SourceLocation.
+        command = ["rg", "--line-number", "--no-heading", "--with-filename"]
         if 0 < len(query.paths) <= self.NARROW_PATH_THRESHOLD:
             command.extend(["--context", str(self.CONTEXT_LINES)])
         command.append(query.pattern or "")
@@ -32,6 +57,7 @@ class RipgrepExecutor:
                 status="PASS",
                 executor="ripgrep",
                 evidence=stdout.strip(),
+                source_locations=_match_locations(stdout),
             )
 
         return EvidenceResult(

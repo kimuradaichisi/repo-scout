@@ -162,8 +162,31 @@ Output:
         ├── Q1.json
         ├── Q2.json
         ├── Q3.json
-        └── evidence.md
+        ├── evidence.md
+        └── evidence-contract.json
 ```
+
+## Evidence Contract
+
+`evidence-contract.json` is the same investigation's results as a deterministic,
+machine-readable contract instead of concatenated raw text: `goal`, one `QueryEvidence` per
+query (raw evidence text kept verbatim, never summarized or semantically transformed),
+deduplicated `SourceLocation`s, and `UnknownEvidence` for every `ERROR`/`UNRESOLVED` query
+(kept distinct -- an executor that ran and failed is not the same fact as a query nobody
+resolved). RepoScout does not infer FACTS/RELATIONS from this text; that's a Strong Model's
+job, working from this contract as its evidence.
+
+`SourceLocation` (`path`, `start_line`, `end_line`, optional `content_hash`) is populated
+differently per executor, honestly reflecting what each can actually confirm:
+
+- `rg` -- one location per match line, from the match's own `path:line` (context lines are
+  not turned into locations; only a confirmed match is).
+- `read` -- one location for the actual range read, truncated at EOF if the request asked for
+  more than the file has, with a hash of the returned content.
+- `git_log` -- always `[]`. A log line names a commit, not a file:line span; RepoScout does
+  not guess which file a commit message means.
+- Evidence Pack (`pack`) -- one location per `PackedSource`, with its `sha256` as
+  `content_hash`.
 
 ## Repository File Scope
 
@@ -236,7 +259,9 @@ coverage, generate rules, or apply policies from a trace. A future analyzer may 
 frequent low-cost paths and propose Rule Candidates, but human approval is required before
 promotion.
 
-Tracing is opt-in and writes JSONL, one header or step record per line:
+Tracing is opt-in and writes JSONL, one header/step/completion record **appended** per line as
+it happens -- not batched at the end. A crash mid-investigation leaves a valid, readable partial
+trace instead of nothing:
 
 ```bash
 uv run reposcout investigate examples/investigation.yaml \
@@ -246,9 +271,13 @@ uv run reposcout investigate examples/investigation.yaml \
 ```
 
 Each step keeps its sequence, action, executor, query/status, elapsed time, byte/count
-metrics, and source path/range/hash metadata. Source bodies are not duplicated in traces;
-the Evidence Contract remains their source of truth. The same investigation ID lets a caller
-join RepoScout trace data with external model, token, cost, or evaluator telemetry.
+metrics, and source path/range/hash metadata **when the executor that produced it could confirm
+one** -- see the Evidence Contract note below on which executors that is. Source bodies are not
+duplicated in traces; the Evidence Contract remains their source of truth. Ornith is traced as
+its own `semantic_explore` action, distinct from `search` (deterministic `rg`), so cost/rule
+analysis never mixes an LLM call with a grep call under the same bucket. The same investigation
+ID lets a caller join RepoScout trace data with external model, token, cost, or evaluator
+telemetry.
 
 ## Next Milestones
 

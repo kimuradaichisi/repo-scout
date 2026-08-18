@@ -37,5 +37,6 @@ def test_investigate_cli_writes_opt_in_trace(tmp_path: Path) -> None:
 
     assert completed.returncode == 0
     records = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()]
-    assert len(records) == 3
+    assert [record["record_type"] for record in records] == ["trace", "step", "step", "complete"]
     assert {record["investigation_id"] for record in records} == {"cli-id"}
+    assert records[1]["step"]["source_locations"][0]["path"] == "source.py"
