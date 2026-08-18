@@ -2,7 +2,7 @@ import hashlib
 from pathlib import Path
 
 from reposcout.models import EvidencePack, PackedSource, PackMetrics, SourceRange
-from reposcout.skeleton import RepositorySkeleton
+from reposcout.scope import RepositoryFileScope
 
 
 def _group_by_path(requests: list[SourceRange]) -> dict[str, list[tuple[int, int]]]:
@@ -51,8 +51,8 @@ class EvidencePackBuilder:
     untracked paths fail closed rather than being silently corrected.
     """
 
-    def __init__(self, skeleton: RepositorySkeleton | None = None) -> None:
-        self._skeleton = skeleton or RepositorySkeleton()
+    def __init__(self, scope: RepositoryFileScope | None = None) -> None:
+        self._scope = scope or RepositoryFileScope()
 
     def build(self, root: Path, requests: list[SourceRange]) -> EvidencePack:
         by_path = _group_by_path(requests)
@@ -62,8 +62,8 @@ class EvidencePackBuilder:
         return EvidencePack(sources=sources, metrics=metrics)
 
     def _read_lines(self, root: Path, path: str) -> list[str]:
-        if not self._skeleton.contains(root, path):
-            raise ValueError(f"not a tracked file: {path}")
+        if not self._scope.contains(root, path):
+            raise ValueError(f"not in scope: {path}")
         return (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
 
     def _pack_sources(

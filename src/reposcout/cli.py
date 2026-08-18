@@ -11,7 +11,7 @@ from pydantic import ValidationError  # pyright: ignore[reportMissingImports]
 from reposcout.models import InvestigationPlan, InvestigationQuery, PackRequest, QueryTool
 from reposcout.pack import EvidencePackBuilder
 from reposcout.runner import InvestigationRunner, QueryRunner
-from reposcout.skeleton import RepositorySkeleton
+from reposcout.scope import FileScopeMode, RepositoryFileScope
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     skeleton = subparsers.add_parser("skeleton")
     skeleton.add_argument("--root", type=Path, default=Path.cwd())
+    skeleton.add_argument(
+        "--scope",
+        choices=[item.value for item in FileScopeMode],
+        default=FileScopeMode.TRACKED_ONLY.value,
+    )
 
     pack = subparsers.add_parser("pack")
     pack.add_argument("request", type=Path)
@@ -113,8 +118,9 @@ def run_investigate(args: argparse.Namespace) -> int:
 
 
 def run_skeleton(args: argparse.Namespace) -> int:
+    scope = RepositoryFileScope(FileScopeMode(args.scope))
     try:
-        files = RepositorySkeleton().list_files(args.root.resolve())
+        files = scope.list_files(args.root.resolve())
     except RuntimeError as error:
         print(json.dumps({"error": str(error)}, indent=2))
         return 1

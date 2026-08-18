@@ -154,14 +154,30 @@ Output:
         └── evidence.md
 ```
 
-## Repository Skeleton
+## Repository File Scope
+
+`RepositoryFileScope` is the deterministic file universe Skeleton and Pack both
+validate against -- Git's own `.gitignore` matching is the source of truth for
+what's in scope, so no directory name (`node_modules`, `.venv`, ...) is
+hard-coded anywhere in RepoScout.
+
+Two modes, both scoped to `src` and `tests/unit`:
+
+- `tracked-only` (default) -- `git ls-files`. Unchanged from earlier releases.
+- `workspace` -- `git ls-files --cached --others --exclude-standard`: tracked
+  files plus untracked-but-not-ignored files (e.g. a file just created, not
+  yet `git add`ed).
+
+`include-ignored` (surfacing `.gitignore`d files on purpose) is not
+implemented -- see Next Milestones.
 
 ```bash
 uv run reposcout skeleton --root ../target-repo
+uv run reposcout skeleton --root ../target-repo --scope workspace
 ```
 
-Prints tracked paths under `src` and `tests/unit` -- the deterministic source of
-truth a caller's `target_hints` (kind `path`) can be checked against.
+Prints paths in scope -- the deterministic source of truth a caller's
+`target_hints` (kind `path`) can be checked against.
 
 ## Evidence Pack (Pack First)
 
@@ -203,3 +219,5 @@ This intentionally prevents conversation-history contamination between repositor
 3. Add LSP-backed symbol queries.
 4. Route fully specified queries directly to deterministic executors.
 5. Keep Ornith only for ambiguous tool-selection tasks.
+6. Future: `include-ignored` `RepositoryFileScope` mode (deliberately surfacing
+   `.gitignore`d files), not implemented.
