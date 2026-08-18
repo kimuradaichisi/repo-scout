@@ -279,6 +279,21 @@ analysis never mixes an LLM call with a grep call under the same bucket. The sam
 ID lets a caller join RepoScout trace data with external model, token, cost, or evaluator
 telemetry.
 
+## Claude / RepoScout Integration
+
+Before Claude reads/searches a repository directly and repeatedly, it can call RepoScout's
+deterministic CLI (`skeleton` / `query` / `investigate` / `pack`) through the Bash tool and
+work from `EvidenceContract` / `EvidencePack` instead. This is a Bash-tool convention, not a
+new integration surface: no MCP server and no dedicated RepoScout Agent are introduced.
+RepoScout itself gains no new LLM dependency from this.
+
+See [`docs/claude_usage_policy.md`](docs/claude_usage_policy.md) for the full policy --
+Skeleton First, Deterministic Search First, Pack First, Re-read by Exception, the Search
+Intent (Claude) / Search Execution (RepoScout) split, why `UNRESOLVED` is not an invitation
+to fall back to Ornith implicitly, stopping once `stop_conditions` are met, and preserving
+UNKNOWN rather than inferring it -- plus a runnable example for each command and for
+`--trace-out`/`--investigation-id`.
+
 ## Next Milestones
 
 1. Validate token savings manually with Claude Code.
